@@ -47,10 +47,14 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	driver, err := virtual.NewDriver()
+	if s.TargetKubeconfig == "" {
+		fmt.Errorf("--target-kubeconfig must be provided")
+		os.Exit(1)
+	}
+	driver, err := virtual.NewDriver(s.TargetKubeconfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	if err := app.Run(s, driver); err != nil {

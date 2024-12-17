@@ -4,7 +4,6 @@ set -eo pipefail
 script_dir=$(dirname "${(%):-%x}")
 source "$script_dir/helper/common.sh"
 source "$script_dir/helper/grab.sh"
-proj_dir=$(realpath "$script_dir/..")
 
 mkdir -p "bin/remote"
 
@@ -14,12 +13,15 @@ if ! command -v direnv &> /dev/null; then
     warn "direnv not present. Installing..."
     brew install direnv
     error_exit "Kindly exit your current terminal and relaunch this script in new terminal/shell instance" 1
-    exit 1
 fi
 
-declare envrc_file="$proj_dir/.envrc"
-touch "$envrc_file"
-direnv allow "$proj_dir"
+if ! command -v yq &> /dev/null; then
+    warn "yq not present. Installing..."
+    brew install yq
+    error_exit "Please re-run this script in new terminal/shell instance" 1
+fi
+
+validate_grab_resources
 
 if [[ "$mode" == "local" ]]; then
   goos=$(go env GOOS)
@@ -39,7 +41,6 @@ go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 envTestSetupCmd="setup-envtest --os $goos --arch $goarch use -p path"
 printf "Executing: %s\n" "$envTestSetupCmd"
 binaryAssetsDir=$(eval "$envTestSetupCmd")
-echo "export BINARY_ASSETS_DIR=$binaryAssetsDir" >> "$envrc_file"
 errorCode="$?"
 if [[ "$errorCode" -gt 0 ]]; then
       error_exit "EC: $errorCode. Error in executing $envTestSetupCmd. Exiting!" 2

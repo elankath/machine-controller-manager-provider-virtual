@@ -6,7 +6,7 @@
 /test
 /logs
 /hack/tools/bin
-
+gen
 *.html
 .vscode
 .idea

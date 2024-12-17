@@ -15,7 +15,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"maps"
-	"os"
 	"slices"
 	"time"
 )
@@ -35,14 +34,11 @@ var _ driver.Driver = &DriverImpl{}
 
 // DriverImpl is the struct that implements the MCM driver.Driver interface
 type DriverImpl struct {
-	Client *kubernetes.Clientset
+	client       *kubernetes.Clientset
+	managedNodes map[string]corev1.Node
 }
 
-func NewDriver() (driver.Driver, error) {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		return nil, fmt.Errorf("KUBECONFIG must be set")
-	}
+func NewDriver(kubeconfig string) (driver.Driver, error) {
 	// Create a config based on the kubeconfig file
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
@@ -53,7 +49,7 @@ func NewDriver() (driver.Driver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot create clientset from kubeconfig %q: %w", kubeconfig, err)
 	}
-	return &DriverImpl{Client: clientset}, nil
+	return &DriverImpl{client: clientset, managedNodes: make(map[string]corev1.Node)}, nil
 }
 
 func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachineRequest) (resp *driver.CreateMachineResponse, err error) {
@@ -74,42 +70,49 @@ func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachin
 		return
 	}
 	node.Spec.ProviderID = awsfake.EncodeInstanceID(req.MachineClass.NodeTemplate.Region, instanceID)
-	_, err = d.Client.CoreV1().Nodes().Create(ctx, &node, metav1.CreateOptions{})
+	_, err = d.client.CoreV1().Nodes().Create(ctx, &node, metav1.CreateOptions{})
 	if err != nil {
 		err = status.Error(codes.Internal, err.Error())
 		return
 	}
-	err = adjustNode(d.Client, node.Name)
+	adjustedNode, err := adjustNode(d.client, node.Name)
 	if err != nil {
 		err = status.Error(codes.Internal, err.Error())
 		return
 	}
-	resp.ProviderID = node.Spec.ProviderID
-	resp.NodeName = node.Name // not accurate but OK for now.
+	resp = &driver.CreateMachineResponse{
+		ProviderID:     node.Spec.ProviderID,
+		NodeName:       node.Name,
+		LastKnownState: fmt.Sprintf("Instance %q created at %q", node.Name, time.Now()),
+	}
+	d.managedNodes[node.Name] = adjustedNode
 	return
 }
 
-func adjustNode(client *kubernetes.Clientset, nodeName string) error {
-	nd, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+func adjustNode(client *kubernetes.Clientset, nodeName string) (adjustedNode corev1.Node, err error) {
+	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("adjustNode cannot get node with name %q: %w", nd.Name, err)
+		err = fmt.Errorf("adjustNode cannot get node with name %q: %w", node.Name, err)
+		return
 	}
-	nd.Spec.Taints = slices.DeleteFunc(nd.Spec.Taints, func(taint corev1.Taint) bool {
+	node.Spec.Taints = slices.DeleteFunc(node.Spec.Taints, func(taint corev1.Taint) bool {
 		return taint.Key == "node.kubernetes.io/not-ready"
 	})
 	//nd.Spec.Taints = lo.Filter(nd.Spec.Taints, func(item corev1.Taint, index int) bool {
 	//	return item.Key != "node.kubernetes.io/not-ready"
 	//})
-	nd, err = client.CoreV1().Nodes().Update(context.Background(), nd, metav1.UpdateOptions{})
+	nd, err := client.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("adjustNode cannot update node with name %q: %w", nd.Name, err)
+		err = fmt.Errorf("adjustNode cannot update node with name %q: %w", nd.Name, err)
+		return
 	}
 	nd.Status.Phase = corev1.NodeRunning
 	nd, err = client.CoreV1().Nodes().UpdateStatus(context.Background(), nd, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("adjustNode cannot update the status of node with name %q: %w", nd.Name, err)
+		err = fmt.Errorf("adjustNode cannot update the status of node with name %q: %w", nd.Name, err)
 	}
-	return nil
+	adjustedNode = *nd.DeepCopy()
+	return
 }
 
 func newNode(machine *v1alpha1.Machine, machineClass *v1alpha1.MachineClass) (node corev1.Node, err error) {
@@ -144,6 +147,9 @@ func newNode(machine *v1alpha1.Machine, machineClass *v1alpha1.MachineClass) (no
 	allocatableMem.Sub(subMem)
 	node.Status.Allocatable[corev1.ResourceMemory] = *allocatableMem
 
+	if len(node.Annotations) == 0 {
+		node.Annotations = make(map[string]string)
+	}
 	node.Annotations["volumes.kubernetes.io/controller-managed-attach-detach"] = "true"
 	node.Labels[corev1.LabelArchStable] = *machineClass.NodeTemplate.Architecture
 	node.Labels[corev1.LabelHostname] = nodeName
@@ -165,26 +171,30 @@ func (d *DriverImpl) InitializeMachine(ctx context.Context, request *driver.Init
 	return nil, status.Error(codes.Unimplemented, "Virtual Provider does not yet implement InitializeMachine")
 }
 
-func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMachineRequest) (*driver.DeleteMachineResponse, error) {
-	//TODO implement me
-	panic("implement me")
+func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMachineRequest) (response *driver.DeleteMachineResponse, err error) {
+	delete(d.managedNodes, request.Machine.Name)
+	return
 }
 
 func (d *DriverImpl) GetMachineStatus(ctx context.Context, request *driver.GetMachineStatusRequest) (response *driver.GetMachineStatusResponse, err error) {
 	// TODO: introduce simulation of failures here.
-	response.NodeName = request.Machine.Name
-	response.ProviderID = request.Machine.Spec.ProviderID
+	node, ok := d.managedNodes[request.Machine.Name]
+	if !ok {
+		err = status.Error(codes.NotFound, fmt.Sprintf("instance %q not found", request.Machine.Name))
+		return
+	}
+	response = &driver.GetMachineStatusResponse{
+		NodeName:   node.Name,
+		ProviderID: node.Spec.ProviderID,
+	}
 	return
 }
 
 func (d *DriverImpl) ListMachines(ctx context.Context, request *driver.ListMachinesRequest) (response *driver.ListMachinesResponse, err error) {
-	// TODO: introduce simulation of failures here.
-	nodeList, err := d.Client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return
+	response = &driver.ListMachinesResponse{
+		MachineList: make(map[string]string),
 	}
-	response.MachineList = make(map[string]string)
-	for _, node := range nodeList.Items {
+	for _, node := range d.managedNodes {
 		response.MachineList[node.Spec.ProviderID] = node.Name
 	}
 	return

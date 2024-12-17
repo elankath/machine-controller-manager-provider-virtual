@@ -57,6 +57,16 @@ init_local_cluster() {
       echo "MachineDeployments at $init_mcd_path created successfully on virtual cluster"
   fi
 
+  cmd="kubectl apply -f $init_secret_dir"
+  echo "Applying Secrets using: ${cmd}"
+  eval "$cmd"
+  if [[ $? -ne 0 ]]; then
+      error_exit "The creation of Secrets  failed with exit code $?" "$?"
+      return
+  else
+      echo "Secrets at $init_secret_dir created successfully on virtual cluster"
+  fi
+
 
 
   echo "init_local_cluster completed."

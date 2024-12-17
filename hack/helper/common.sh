@@ -1,8 +1,13 @@
-declare init_data_dir="/tmp/mcmpv"
+# NOTE: This is a bash module not meant to be directly invoked but only sourced.
+declare script_helper_dir=$(dirname "${(%):-%x}")
+declare project_dir="$(realpath ${script_helper_dir}/../../)"
+declare init_data_dir="${project_dir}/gen"
 [[ -d "$init_data_dir" ]] || mkdir -p "$init_data_dir"
 
 declare init_mcc_path="$init_data_dir/mcc.yaml"
 declare init_mcd_path="$init_data_dir/mcd.yaml"
+declare init_secret_dir="$init_data_dir/scrt"
+[[ -d "$init_secret_dir" ]] || mkdir -p "$init_secret_dir"
 declare init_env_path="$init_data_dir/env"
 
 error_exit() {

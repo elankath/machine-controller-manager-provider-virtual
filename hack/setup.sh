@@ -5,6 +5,8 @@ script_dir=$(dirname "${(%):-%x}")
 source "$script_dir/helper/common.sh"
 source "$script_dir/helper/grab.sh"
 
+# FIXME: Refactor setup.sh to use the variables inside common.sh for binDir etc. Move more code into common.sh
+
 mkdir -p "bin/remote"
 
 declare mode=local
@@ -36,36 +38,70 @@ echo "GOOS set to $goos, GOARCH set to $goarch"
 echo "For build mode $mode, will build binaries into $binDir"
 
 
-printf "Installing setup-envtest...\n"
-go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
-envTestSetupCmd="setup-envtest --os $goos --arch $goarch use -p path"
-printf "Executing: %s\n" "$envTestSetupCmd"
-binaryAssetsDir=$(eval "$envTestSetupCmd")
-errorCode="$?"
-if [[ "$errorCode" -gt 0 ]]; then
-      error_exit "EC: $errorCode. Error in executing $envTestSetupCmd. Exiting!" 2
+if [[ ! -f "$binDir/kube-apiserver" ]]; then
+  printf "Installing setup-envtest...\n"
+  go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+  envTestSetupCmd="setup-envtest --os $goos --arch $goarch use -p path"
+  printf "Executing: %s\n" "$envTestSetupCmd"
+  binaryAssetsDir=$(eval "$envTestSetupCmd")
+  errorCode="$?"
+  if [[ "$errorCode" -gt 0 ]]; then
+        error_exit "EC: $errorCode. Error in executing $envTestSetupCmd. Exiting!" 2
+  fi
+  echo "setup-envtest downloaded binaries into $binaryAssetsDir"
+  cp -fv "$binaryAssetsDir"/* "$binDir"
+  echo "Copied binaries into $binDir"
+else
+  echo "kube-apiserver binary already present at $binDir/kube-apiserver. Skipping setup-envtest install."
 fi
-echo "setup-envtest downloaded binaries into $binaryAssetsDir"
-cp -fv "$binaryAssetsDir"/* "$binDir"
-echo "Copied binaries into $binDir"
 
-if [[ -z "$KVCL_DIR" ]]; then
-  KVCL_DIR="$GOPATH/src/github.com/unmarshall/kvcl"
-  echo "KVCL_DIR is not set. Assuming default: $KVCL_DIR"
+
+if [[ ! -f "$kvcl_bin_path" ]]; then
+  check_set_kvcl_dir
+  pushd "$KVCL_DIR" > /dev/null
+  echo "Building KVCL..."
+  GOOS=$goos GOARCH=$goarch go build -v  -buildvcs=true  -o "$kvcl_bin_path" cmd/main.go
+  chmod +x "$kvcl_bin_path"
+  echo "KVCL Binary Built at $kvcl_bin_path"
+else
+  echo "KVCL Binary already present at $kvcl_bin_path. Skipping build."
 fi
 
-exists_dir_or_exit "$KVCL_DIR" "KVCL_DIR: $KVCL_DIR doesn't exist. Kindly check out at this path or explicitly set KVCL_DIR before invoking this script" 3
-pushd "$KVCL_DIR" > /dev/null
-echo "Building KVCL..."
-GOOS=$goos GOARCH=$goarch go build -v  -buildvcs=true  -o "$binDir/kvcl" cmd/main.go
-chmod +x "$binDir/kvcl"
+
+if [[ ! -f "$binDir/cluster-autoscaler" ]]; then
+  check_set_ca_dir
+  pushd "$CA_DIR" > /dev/null
+  echo "Building CA..."
+  GOOS=$goos GOARCH=$goarch go build -v  -buildvcs=true  -o "$binDir/cluster-autoscaler" main.go
+  chmod +x "$binDir/cluster-autoscaler"
+  echo "CA Binary Built at $ca_bin_path"
+else
+  echo "CA Binary already present at $binDir/cluster-autoscaler. Skipping build."
+fi
 
 check_set_mcm_dir
 
-pushd "$MCM_DIR" > /dev/null
-echo "Building MCM..."
-GOOS=$goos GOARCH=$goarch go build -v -buildvcs=true  -o "$binDir/machine-controller-manager"  cmd/machine-controller-manager/controller_manager.go
+if [[ ! -f "$binDir/machine-controller-manager" ]]; then
+  pushd "$MCM_DIR" > /dev/null
+  echo "Building MCM..."
+  GOOS=$goos GOARCH=$goarch go build -v -buildvcs=true  -o "$mcm_bin_path"  cmd/machine-controller-manager/controller_manager.go
+  echo "MCM Binary Built at $mcm_bin_path"
+  chmod +x "$mcm_bin_path"
+else
+  echo "MCM Binary already present at $binDir/machine-controller-manager. Skipping build."
+fi
+
+if [[ ! -f "$hack_bin_path" ]]; then
+  echo "Building Hack..."
+  cd "$project_dir"
+  go build -v -buildvcs=true  -o "$hack_bin_path"  cmd/hack/main.go
+  echo "Hack Binary Built at $hack_bin_path"
+else
+  echo "Hack Binary already present at $hack_bin_path Skipping build."
+fi
 
 grab_resources
+
+export KUBECONFIG="$local_kubeconfig"
 
 echo "Setup Complete! You can now use ./hack/launch.sh"

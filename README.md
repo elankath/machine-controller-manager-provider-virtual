@@ -5,8 +5,9 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 ## Usage
 
 ### Setup 
-Execute `./hack/setup.sh`
 
+1. CHeckout this project at  `$GOPATH/src/github.com/elankath/machine-controller-manager-provider-virtual`
+2. Execute `./hack/setup.sh`
 - This will setup download/build the binaries for the virtual cluster, MCM, MC, CA, hack, etc
 - You need to export `LANDSCAPE`, `PROJECT` and `SHOOT` env variables before running so that the `MachineClasses` and `MachineDeployments` can be copied from an existing gardener cluster.
 - It downloads relevant files into `gen` sub-dir of project. A `env` file with env variables are also generated at `gen/env`.

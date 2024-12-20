@@ -7,14 +7,20 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 ### Setup 
 Execute `./hack/setup.sh`
 
-- This will setup download/build the binaries for the virtual cluster, MCM and other control plane components.
+- This will setup download/build the binaries for the virtual cluster, MCM, MC, CA, hack, etc
 - You need to export `LANDSCAPE`, `PROJECT` and `SHOOT` env variables before running so that the `MachineClasses` and `MachineDeployments` can be copied from an existing gardener cluster.
 - It downloads relevant files into `gen` sub-dir of project. A `env` file with env variables are also generated at `gen/env`.
 
 ### Launch
-Execute `./hack/launch.sh`
 
-- This script will launch the virtual cluster and `machine-controller-manager`
+TODO: make a combined launch for convenience.
+
+Open a shell with 4 windows.
+1. First Launch KVCL (mandatory) Execute `./hack/kvcl-launch.sh`
+1. Launch MCM. `./hack/mcm-launch.sh`
+1. Launch MC. `./hack/mc-launch.sh`
+1. Launch CA. `./hack/ca-launch.sh`
+
 
 TODO: describe working in detail
 

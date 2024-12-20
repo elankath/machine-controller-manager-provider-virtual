@@ -59,7 +59,7 @@ EOF
 #  echo "Patching dummy MCM availableReplicas to 1."
 
   # This is Needed due to check in CA that checks for mcm available replicas
-  "$hack_bin_path" -mcd-replicas=1
+  eval "$hack_bin_path" -mcd-replicas=1
  # kubectl scale  deployment -n "$SHOOT_NAMESPACE" machine-controller-manager --replicas=1
 }
 

@@ -43,6 +43,7 @@ grab_resources() {
   echo "export SHOOT_NAMESPACE=$shootNs" > "$env_path"
   echo "export PROJECT=$PROJECT" >> "$env_path"
   echo "export SHOOT=$SHOOT" >> "$env_path"
+  echo "export KUBECONFIG=$local_kubeconfig" >> "$env_path"
 
   echo "Downloading shoot worker yaml into $worker_spec_path ..."
   kubectl get worker "$SHOOT" -oyaml > "$worker_spec_path"

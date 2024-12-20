@@ -11,12 +11,6 @@ mkdir -p "bin/remote"
 
 declare mode=local
 
-if ! command -v direnv &> /dev/null; then
-    warn "direnv not present. Installing..."
-    brew install direnv
-    error_exit "Kindly exit your current terminal and relaunch this script in new terminal/shell instance" 1
-fi
-
 if ! command -v yq &> /dev/null; then
     warn "yq not present. Installing..."
     brew install yq
@@ -89,6 +83,16 @@ if [[ ! -f "$binDir/machine-controller-manager" ]]; then
   chmod +x "$mcm_bin_path"
 else
   echo "MCM Binary already present at $binDir/machine-controller-manager. Skipping build."
+fi
+
+if [[ ! -f $mc_bin_path ]]; then
+  cd "$project_dir"
+  echo "Building MC (machine-controller-manager-provider-virtual)..."
+  GOOS=$goos GOARCH=$goarch go build -v -buildvcs=true  -o "$mc_bin_path"  cmd/machine-controller/main.go
+  echo "MC (virtual) Binary Built at $mc_bin_path"
+  chmod +x "$mc_bin_path"
+else
+  echo "MC Binary already present at $mc_bin_path. Skipping build."
 fi
 
 if [[ ! -f "$hack_bin_path" ]]; then

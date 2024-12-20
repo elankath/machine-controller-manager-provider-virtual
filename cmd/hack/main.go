@@ -111,8 +111,9 @@ func createUpdateDummyMCD(ctx context.Context, client kubernetes.Interface, shoo
 			if err != nil {
 				return fmt.Errorf("cannot create dummy machine-controller-manager deployment: %w", err)
 			}
+		} else {
+			return fmt.Errorf("cannot get dummy machine-controller-manager: %w", err)
 		}
-		return err
 	}
 	deployment.Spec.Replicas = ptrReplicas
 	deployment.Status.Replicas = int32(numReplicas)
@@ -120,7 +121,8 @@ func createUpdateDummyMCD(ctx context.Context, client kubernetes.Interface, shoo
 	deployment.Status.AvailableReplicas = int32(numReplicas)
 	deployment, err = deploymentClient.UpdateStatus(ctx, deployment, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("cannot update replicas to %q for dummy machine-controller-manager deployment: %w", numReplicas, err)
+		return fmt.Errorf("hack cannot update replicas to %q for dummy machine-controller-manager deployment: %w", numReplicas, err)
 	}
+	klog.Infof("hack successfully updated replicas, availableReplicas of dummy machine-controller-manager to %d", numReplicas)
 	return nil
 }

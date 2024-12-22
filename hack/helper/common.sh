@@ -15,8 +15,8 @@ declare mcm_log_file="/tmp/mcm.log"
 declare mc_log_file="/tmp/mc.log"
 declare ca_log_file="/tmp/ca.log"
 
-declare data_dir="${project_dir}/gen/data"
-[[ -d "$data_dir" ]] || mkdir -p "$data_dir"
+declare spec_dir="${project_dir}/gen/spec"
+[[ -d "$spec_dir" ]] || mkdir -p "$spec_dir"
 
 declare gen_tmp_dir="${project_dir}/gen/tmp"
 [[ -d "$gen_tmp_dir" ]] || mkdir -p "$gen_tmp_dir"
@@ -24,12 +24,12 @@ declare gen_tmp_dir="${project_dir}/gen/tmp"
 declare ca_launch_path="${gen_dir}/ca-launch.sh"
 declare mcm_launch_path="${gen_dir}/mcm-launch.sh"
 
-declare mcc_path="$data_dir/mcc.yaml"
-declare mcd_path="$data_dir/mcd.yaml"
-declare secret_dir="$data_dir/scrt"
+declare mcc_path="$spec_dir/mcc.yaml"
+declare mcd_path="$spec_dir/mcd.yaml"
+declare secret_dir="$spec_dir/scrt"
 [[ -d "$secret_dir" ]] || mkdir -p "$secret_dir"
 
-declare env_path="$data_dir/env"
+declare env_path="$spec_dir/env"
 declare worker_spec_path="${gen_tmp_dir}/worker.yaml"
 declare ca_deploy_spec_path="${gen_tmp_dir}/ca-deploy.yaml"
 

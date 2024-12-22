@@ -29,7 +29,7 @@ grab_resources() {
   local cmd="gardenctl target --garden $LANDSCAPE --project $PROJECT --shoot $SHOOT --control-plane"
   echo "$cmd"
   eval "$cmd"
-  eval $(gardenctl kubectl-env zsh)
+  eval $(gctl kubectl-env zsh)
   kubectl get mcc -oyaml > "$mcc_path"
   kubectl get mcd -oyaml > "$mcd_path"
   local shoot_secrets=($(kubectl get secrets -o custom-columns=NAME:.metadata.name | grep '^shoot--' | tail +1))

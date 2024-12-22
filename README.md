@@ -6,27 +6,21 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 
 ### Setup 
 
-1. CHeckout this project at  `$GOPATH/src/github.com/elankath/machine-controller-manager-provider-virtual`
-2. Execute `./hack/setup.sh`
-- This will setup download/build the binaries for the virtual cluster, MCM, MC, CA, hack, etc
-- You need to export `LANDSCAPE`, `PROJECT` and `SHOOT` env variables before running so that the `MachineClasses` and `MachineDeployments` can be copied from an existing gardener cluster.
-- It downloads relevant files into `gen` sub-dir of project. A `env` file with env variables are also generated at `gen/env`.
+> [!NOTE]
+> Make sure you are signed into the SAP network before executing setup!
+
+Execute `./hack/setup.sh -project <gardenerProjName> -shoot <gardenerShootName>`
+
+1. Will build the `hack` binary into `bin` and then invoke `bin/hack setup opts`
+1. Will download/build the binaries for the virtual cluster, MCM, MC, CA, hack, etc
+1. It also downloads `MachineClass`, `MachineDeployment`, `Secrets` of the machine class and other resources from a real world Gardener cluster specified by the `-lanscape`, `-project` and `-shoot` options.
+1. The idea is to set up things in such a way that the MCM, MC and CA components can use the configuration of a remote gardener cluster replicated on a local virtual cluster.
 
 ### Launch
 
-TODO: make a combined launch for convenience.
+### Examples
 
-Open a shell with 4 windows.
-1. First Launch KVCL (mandatory) Execute `./hack/kvcl-launch.sh`
-1. Launch MCM. `./hack/mcm-launch.sh`
-1. Launch MC. `./hack/mc-launch.sh`
-1. Launch CA. `./hack/ca-launch.sh`
-
-
-TODO: describe working in detail
-
-### CLI Use
-
+#### Checking out resources
 1. `export KUBECONFIG=/tmp/kvcl.yaml`
 2. Listing control plane objects
    1. `kubectl config set-context --current --namespace=<SHOOT_NAMESPACE>`

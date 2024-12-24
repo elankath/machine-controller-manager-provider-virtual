@@ -192,6 +192,8 @@ func (d *DriverImpl) watchSimulationConfig() {
 }
 
 func (d *DriverImpl) refreshSimulationConfig() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	data, err := os.ReadFile(SimulationConfigPath)
 	if err != nil {
 		return err
@@ -203,7 +205,7 @@ func (d *DriverImpl) refreshSimulationConfig() error {
 	}
 	d.simConfig = sm
 	d.lastSimConfigChange = time.Now().UTC()
-	klog.Infof("refreshSimulationConfig reloaded %q at %q", SimulationConfigPath, d.lastSimConfigChange)
+	klog.Infof("refreshSimulationConfig reloaded %q at %q, simConfig=%v", SimulationConfigPath, d.lastSimConfigChange, d.simConfig)
 	return nil
 }
 
@@ -217,9 +219,9 @@ func (d *DriverImpl) countNodesForRegionAndMachineType(region, machineType strin
 }
 
 func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachineRequest) (resp *driver.CreateMachineResponse, err error) {
-	// Check if the MachineClass is for the supported cloud provider
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Check if the MachineClass is for the supported cloud provider
 	if req.MachineClass.Provider != ProviderAWS {
 		err = fmt.Errorf("requested for Provider '%s', virtual provider currently only supports '%s'", req.MachineClass.Provider, ProviderAWS)
 		err = status.Error(codes.InvalidArgument, err.Error())
@@ -357,11 +359,15 @@ func (d *DriverImpl) InitializeMachine(ctx context.Context, request *driver.Init
 }
 
 func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMachineRequest) (response *driver.DeleteMachineResponse, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	delete(d.managedNodes, request.Machine.Name)
 	return
 }
 
 func (d *DriverImpl) GetMachineStatus(ctx context.Context, request *driver.GetMachineStatusRequest) (response *driver.GetMachineStatusResponse, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	// TODO: introduce simulation of failures here.
 	node, ok := d.managedNodes[request.Machine.Name]
 	if !ok {
@@ -406,7 +412,7 @@ func (d *DriverImpl) changeAssignedPodsToRunning(ctx context.Context) {
 			pod.Status.Phase = corev1.PodRunning
 			_, err = d.client.CoreV1().Pods(pod.Namespace).UpdateStatus(ctx, &pod, metav1.UpdateOptions{})
 			if err != nil {
-				klog.Infof("changeAssignedPodsToRunning FAILED to change  pod %q assigned to %q to phase Running", pod.Name, pod.Spec.NodeName)
+				klog.Infof("changeAssignedPodsToRunning FAILED to change  pod %q assigned to %q to phase Running: %s", pod.Name, pod.Spec.NodeName, err)
 			} else {
 				klog.Infof("changeAssignedPodsToRunning changed pod %q assigned to %q to phase Running", pod.Name, pod.Spec.NodeName)
 			}

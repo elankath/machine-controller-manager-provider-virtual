@@ -27,7 +27,7 @@ main() {
   "$mcm_bin_path" --control-kubeconfig="$KUBECONFIG" \
     --target-kubeconfig="$KUBECONFIG" \
     --namespace="$SHOOT_NAMESPACE" \
-    --leader-elect=false | tee /tmp/mcm.log
+    --leader-elect=false 2>&1 | tee /tmp/mcm.log
 
 }
 

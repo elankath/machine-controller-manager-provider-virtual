@@ -96,7 +96,7 @@ func CopyAllFiles(srcDir, destDir string) error {
 		return fmt.Errorf("source is not a directory: %s", srcDir)
 	}
 
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(destDir, 0777); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
@@ -117,7 +117,7 @@ func CopyAllFiles(srcDir, destDir string) error {
 
 func CopyFile(srcPath, dstPath string) error {
 	klog.Infof("copying %s to %s", srcPath, dstPath)
-	out, err := os.Create(dstPath)
+	out, err := os.OpenFile(dstPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
 	if err != nil {
 		return err
 	}

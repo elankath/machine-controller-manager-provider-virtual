@@ -22,6 +22,7 @@ kvcl_launch() {
   # Set trap for script termination
   trap cleanup_kvcl EXIT ERR SIGINT SIGTERM
   echo "Binaries Path: $bin_dir"
+  chmod +x "${bin_dir}/*"
   kvcl_bin="${bin_dir}/kvcl"
   export BINARY_ASSETS_DIR="$bin_dir"
   kvcl_bin="${bin_dir}/kvcl"

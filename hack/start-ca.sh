@@ -7,6 +7,7 @@ source "$script_dir/helper/init.sh"
 set -eo pipefail
 verify() {
   echo "NOTE: You can edit $ca_deploy_spec_path before launching this script"
+  sleep 1
   check_ca_deploy_spec
 
   check_kvcl_running
@@ -43,23 +44,23 @@ EOF
   local dummy_mcm_spec_path="$gen_tmp_dir/mcm-dummy.yaml"
   echo "$dummy_mcm_spec" > "$dummy_mcm_spec_path"
 
-#  if ! kubectl get deployment machine-controller-manager -n "$SHOOT_NAMESPACE" >/dev/null 2>&1;  then
-#    cmd="kubectl apply -f $dummy_mcm_spec_path"
-#    echo "Applying Dummy MCM using: ${cmd}"
-#    eval "$cmd"
-#    if [[ $? -ne 0 ]]; then
-#        error_exit "The creation of dummy MCM failed with exit code $?" "$?"
-#        return
-#    else
-#        echo "Dummy MCM created successfully on virtual-cluster"
-#    fi
-#  else
-#    echo "Dummy MCM appears already deployed on virtual cluster"
-#  fi
-#  echo "Patching dummy MCM availableReplicas to 1."
-
+  if ! kubectl get deployment machine-controller-manager -n "$SHOOT_NAMESPACE" >/dev/null 2>&1;  then
+    cmd="kubectl apply -f $dummy_mcm_spec_path"
+    echo "Applying Dummy MCM using: ${cmd}"
+    eval "$cmd"
+    if [[ $? -ne 0 ]]; then
+        error_exit "The creation of dummy MCM failed with exit code $?" "$?"
+        return
+    else
+        echo "Dummy MCM created successfully on virtual-cluster"
+    fi
+  else
+    echo "Dummy MCM appears already deployed on virtual cluster"
+  fi
+  echo "Patching dummy MCM availableReplicas to 1."
   # This is Needed due to check in CA that checks for mcm available replicas
-  eval "$hack_bin_path" -mcd-replicas=1
+  kubectl patch deployment machine-controller-manager -n $SHOOT_NAMESPACE --subresource='status' --type='merge' -p '{"status": {"replicas":1, "availableReplicas": 1, "readyReplicas": 1}}'
+ # eval "$hack_bin_path" -mcd-replicas=1
  # kubectl scale  deployment -n "$SHOOT_NAMESPACE" machine-controller-manager --replicas=1
 }
 

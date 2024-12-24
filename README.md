@@ -18,6 +18,21 @@ Execute `./hack/setup.sh -project <gardenerProjName> -shoot <gardenerShootName>`
 
 ### Launch
 
+> [!NOTE]
+> Currently local service launching is handled by scripts. This will be moved to the `hack launch` command later.
+
+#### Launch ALL Services - API-SERVER CA, MCM, MC
+1. Execute the `./hack/all-start.sh`
+   1. This will will start `KVCL` (virtual cluster) followed by `MCM`, `MC` and `CA`
+
+#### Launching Individual Services 
+1. Individual Launch scripts are present in `./hack`
+   1. You can first launch KVCL (api server + scheduler) using `./hack/start-kvcl.sh`
+   1. Then you can launch MCM  using `./hack/start-mcm.sh`
+   1. Then you can launch MC  using `./hack/start-mc.sh`
+   1. Then you can launch CA  using `./hack/start-ca.sh`
+1. TODO: The above will be changed to use the Go hack binary which will allow to _generate_ the launch scripts and permit customization of start stop with a ctl command later
+
 ### Examples
 
 #### Checking out resources

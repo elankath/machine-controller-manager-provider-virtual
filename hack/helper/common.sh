@@ -29,9 +29,9 @@ declare mcd_path="$spec_dir/mcd.yaml"
 declare secret_dir="$spec_dir/scrt"
 [[ -d "$secret_dir" ]] || mkdir -p "$secret_dir"
 
-declare env_path="$spec_dir/env"
-declare worker_spec_path="${gen_tmp_dir}/worker.yaml"
-declare ca_deploy_spec_path="${gen_tmp_dir}/ca-deploy.yaml"
+declare env_path="$gen_dir/env"
+declare worker_spec_path="${spec_dir}/worker.yaml"
+declare ca_deploy_spec_path="${spec_dir}/cluster-autoscaler.yaml"
 
 declare kvcl_pid_path="/tmp/kvcl.pid"
 declare ca_pid_path="/tmp/ca.pid"
@@ -107,14 +107,15 @@ kill_by_name() {
   if [[ -z "$proc_name" ]]; then
     error_exit "kill_by_name: process name is empty"
   fi
-  local pids=$(pgrep -f "$proc_name")
-  if [[ ! -z "$pids" ]]; then
-#    echo "Found pids $pids for $proc_name"
-    for p in $pids; do
-#      echo "Killing process $p ..."
-      kill -9 "$p"
-    done
-  fi
+  pkill -f "$proc_name"
+#  local pids=$(pgrep -f "$proc_name")
+#  if [[ ! -z "$pids" ]]; then
+##    echo "Found pids $pids for $proc_name"
+#    for p in  "${pids[@]}"; do
+##      echo "Killing process $p ..."
+#      kill  "$p"
+#    done
+#  fi
 }
 check_ca_deploy_spec() {
   if [[ ! -f "$ca_deploy_spec_path" ]]; then

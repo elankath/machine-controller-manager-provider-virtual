@@ -41,17 +41,21 @@ var Download = struct {
 	MachineDeploymentsSpecPath string
 	WorkerSpecPath             string
 	CADeploySpecPath           string
+	MCMDeploySpecPath          string
 	CAPriorityExpanderSpecPath string
 	SecretSpecsDir             string
 	ClusterInfoPath            string
+	ScriptEnvPath              string
 }{
 	MachineClassesSpecPath:     path.Join(DownloadSpecDir, "mcc.yaml"),
 	MachineDeploymentsSpecPath: path.Join(DownloadSpecDir, "mcd.yaml"),
 	WorkerSpecPath:             path.Join(DownloadSpecDir, "worker.yaml"),
 	CADeploySpecPath:           path.Join(DownloadSpecDir, "cluster-autoscaler.yaml"),
+	MCMDeploySpecPath:          path.Join(DownloadSpecDir, "machine-controller-manager.yaml"),
 	CAPriorityExpanderSpecPath: path.Join(DownloadSpecDir, "cluster-autoscaler-priority-expander.yaml"),
 	SecretSpecsDir:             path.Join(DownloadSpecDir, "scrt"),
 	ClusterInfoPath:            path.Join(ProjGenDir, "cluster-info.json"),
+	ScriptEnvPath:              path.Join(ProjGenDir, "env"),
 }
 
 func main() {
@@ -235,9 +239,18 @@ func DownloadClusterData(ctx context.Context, coord pu.ClusterCoordinate) (err e
 		if err != nil {
 			return
 		}
-		klog.Infof("Downloaded CA Deploy YAML into %q - skipping download.", Download.CADeploySpecPath)
+		klog.Infof("Downloaded CA Deploy YAML into %q.", Download.CADeploySpecPath)
 	} else {
 		klog.Infof("CA Deploy YAML already present at %q - skipping download.", Download.CADeploySpecPath)
+	}
+	if !pu.Exists(Download.MCMDeploySpecPath) {
+		_, err = gctl.ExecuteCommandOnPlane(ctx, pu.ControlPlane, fmt.Sprintf("kubectl get deploy machine-controller-manager -oyaml > %s", Download.MCMDeploySpecPath))
+		if err != nil {
+			return
+		}
+		klog.Infof("Downloaded MCM Deploy YAML into %q.", Download.MCMDeploySpecPath)
+	} else {
+		klog.Infof("MCM Deploy YAML already present at %q - skipping download.", Download.MCMDeploySpecPath)
 	}
 	if !pu.Exists(Download.CAPriorityExpanderSpecPath) {
 		var listCmOut string
@@ -251,7 +264,9 @@ func DownloadClusterData(ctx context.Context, coord pu.ClusterCoordinate) (err e
 				return
 			}
 		}
-		klog.Infof("Downloaded CA Priority Expandder YAML into %q - skipping download.", Download.CAPriorityExpanderSpecPath)
+		klog.Infof("Downloaded CA Priority Expander YAML into %q.", Download.MCMDeploySpecPath)
+	} else {
+		klog.Infof("CA Priority Expandder YAML already present at %q - skipping download.", Download.CAPriorityExpanderSpecPath)
 	}
 
 	listSecretsCmd := "kubectl get secrets -o custom-columns=NAME:.metadata.name | grep '^shoot--' | tail +1"
@@ -300,6 +315,23 @@ func DownloadClusterData(ctx context.Context, coord pu.ClusterCoordinate) (err e
 		return
 	}
 	err = os.WriteFile(Download.ClusterInfoPath, data, 0755)
+	if err != nil {
+		return
+	}
+	sb.Reset()
+	sb.WriteString("export LANDSCAPE=")
+	sb.WriteString(clusterInfo.Landscape)
+	sb.WriteString("\n")
+	sb.WriteString("export PROJECT=")
+	sb.WriteString(clusterInfo.Project)
+	sb.WriteString("\n")
+	sb.WriteString("export SHOOT=")
+	sb.WriteString(clusterInfo.Shoot)
+	sb.WriteString("\n")
+	sb.WriteString("export SHOOT_NAMESPACE=")
+	sb.WriteString(shootNamespace)
+	sb.WriteString("\n")
+	err = os.WriteFile(Download.ScriptEnvPath, []byte(sb.String()), 0755)
 	if err != nil {
 		return
 	}

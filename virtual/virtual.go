@@ -102,7 +102,6 @@ func NewDriver(ctx context.Context, kubeconfig string, shootNamespace string) (d
 		return nil, err
 	}
 	go d.watchSimulationConfig()
-	go d.changeAssignedPodsToRunning()
 	return d, nil
 }
 
@@ -268,6 +267,7 @@ func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachin
 		LastKnownState: fmt.Sprintf("Instance %q created at %q", adjustedNode.Name, time.Now()),
 	}
 	err = d.reloadNodes(ctx)
+	go d.changeAssignedPodsToRunning(ctx)
 	return
 }
 
@@ -372,6 +372,7 @@ func (d *DriverImpl) GetMachineStatus(ctx context.Context, request *driver.GetMa
 		NodeName:   node.Name,
 		ProviderID: node.Spec.ProviderID,
 	}
+	go d.changeAssignedPodsToRunning(ctx)
 	return
 }
 
@@ -382,12 +383,35 @@ func (d *DriverImpl) ListMachines(ctx context.Context, request *driver.ListMachi
 	for _, node := range d.managedNodes {
 		response.MachineList[node.Spec.ProviderID] = node.Name
 	}
+	go d.changeAssignedPodsToRunning(ctx)
 	return
 }
 
 func (d *DriverImpl) GetVolumeIDs(ctx context.Context, request *driver.GetVolumeIDsRequest) (response *driver.GetVolumeIDsResponse, err error) {
 	// TODO: implemen in future to simulate attachment/detachment logic
 	return
+}
+
+func (d *DriverImpl) changeAssignedPodsToRunning(ctx context.Context) {
+	pods, err := d.client.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.Errorf("changeAssignedPodsToRunning failed to list pods due to %v", err)
+	}
+	// Iterate over the pods and patch those in "Pending" status
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodPending && pod.Spec.NodeName != "" {
+			// Example patch: add a label to trigger changes (as a simple trigger)
+			//podStatus := pod.Status.DeepCopy()
+			//podStatus.Phase = corev1.PodRunning
+			pod.Status.Phase = corev1.PodRunning
+			_, err = d.client.CoreV1().Pods(pod.Namespace).UpdateStatus(ctx, &pod, metav1.UpdateOptions{})
+			if err != nil {
+				klog.Infof("changeAssignedPodsToRunning FAILED to change  pod %q assigned to %q to phase Running", pod.Name, pod.Spec.NodeName)
+			} else {
+				klog.Infof("changeAssignedPodsToRunning changed pod %q assigned to %q to phase Running", pod.Name, pod.Spec.NodeName)
+			}
+		}
+	}
 }
 
 func BuildReadyConditions() []corev1.NodeCondition {

@@ -1,11 +1,15 @@
 package virtual
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"github.com/elankath/machine-controller-manager-provider-virtual/virtual/awsfake"
 	"github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
+	machineclientset "github.com/gardener/machine-controller-manager/pkg/client/clientset/versioned"
+	machineclientbuilder "github.com/gardener/machine-controller-manager/pkg/util/clientbuilder/machine"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/driver"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/status"
@@ -13,32 +17,60 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 	"maps"
+	"os"
 	"slices"
+	"sync"
 	"time"
 )
 
 const (
 	// ProviderAWS string const to identify AWS provider
-	ProviderAWS                  = "AWS"
-	resourceTypeInstance         = "instance"
-	resourceTypeVolume           = "volume"
-	resourceTypeNetworkInterface = "network-interface"
-	// awsEBSDriverName is the name of the CSI driver for EBS
-	awsEBSDriverName = "ebs.csi.aws.com"
-	awsPlacement     = "machine.sapcloud.io/awsPlacement"
+	ProviderAWS         = "AWS"
+	QuotaPrefixFmt      = "QUOTA_%d"
+	QuotaMachineTypeFmt = QuotaPrefixFmt + "_MACHINE_TYPE"
+	QuotaRegionFmt      = QuotaPrefixFmt + "_REGION"
+	QuotaAmountFmt      = QuotaPrefixFmt + "_AMOUNT"
 )
 
+var SimulationConfigPath = "gen/simulation-config.json"
 var _ driver.Driver = &DriverImpl{}
 
 // DriverImpl is the struct that implements the MCM driver.Driver interface
 type DriverImpl struct {
-	client       *kubernetes.Clientset
-	managedNodes map[string]corev1.Node
+	mu                  sync.Mutex
+	clientConfig        *rest.Config
+	client              *kubernetes.Clientset
+	machineClient       machineclientset.Interface
+	shootNamespace      string
+	managedNodes        map[string]corev1.Node
+	simConfig           SimulationConfig
+	lastSimConfigChange time.Time
 }
 
-func NewDriver(kubeconfig string) (driver.Driver, error) {
+type QuotaLookup struct {
+	MachineType string
+	RegionName  string
+}
+
+type SimulationConfig struct {
+	Quotas []Quota
+}
+
+type Quota struct {
+	MachineType string
+	Region      string
+	Amount      int
+}
+
+func (q Quota) String() string {
+	return fmt.Sprintf("(Region:%s, MachineType:%s, Amount:%d", q.Region, q.MachineType, q.Amount)
+}
+
+func NewDriver(ctx context.Context, kubeconfig string, shootNamespace string) (driver.Driver, error) {
 	// Create a config based on the kubeconfig file
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
@@ -49,15 +81,165 @@ func NewDriver(kubeconfig string) (driver.Driver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot create clientset from kubeconfig %q: %w", kubeconfig, err)
 	}
-	return &DriverImpl{client: clientset, managedNodes: make(map[string]corev1.Node)}, nil
+	mcb := machineclientbuilder.SimpleClientBuilder{
+		ClientConfig: config,
+	}
+	machineClient, err := mcb.Client("machine-controller")
+	if err != nil {
+		return nil, fmt.Errorf("cannot create machine client: %w", err)
+	}
+	d := &DriverImpl{clientConfig: config,
+		client:         clientset,
+		machineClient:  machineClient,
+		shootNamespace: shootNamespace,
+		managedNodes:   make(map[string]corev1.Node)}
+	err = d.reloadNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = d.createSimulationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	go d.watchSimulationConfig()
+	go d.changeAssignedPodsToRunning()
+	return d, nil
+}
+
+func (d *DriverImpl) reloadNodes(ctx context.Context) error {
+	nodeList, err := d.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	d.managedNodes = make(map[string]corev1.Node)
+	for _, n := range nodeList.Items {
+		d.managedNodes[n.Name] = n
+	}
+	return nil
+}
+
+func (d *DriverImpl) createSimulationConfig(ctx context.Context) error {
+	if FileExists(SimulationConfigPath) {
+		klog.Infof("Simlulation Config already exists at %q - loading", SimulationConfigPath)
+		return d.refreshSimulationConfig()
+	}
+
+	machineIf := d.machineClient.MachineV1alpha1()
+	machineClassList, err := machineIf.MachineClasses(d.shootNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	var nt *v1alpha1.NodeTemplate
+	//var quotaKeys = sets.New[string]()
+	mccItems := machineClassList.Items
+	slices.SortFunc(mccItems, func(a, b v1alpha1.MachineClass) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	var quotas []Quota
+	for i := 0; i < len(mccItems); i++ {
+		nt = mccItems[i].NodeTemplate
+		//machineypeKey := fmt.Sprintf(QuotaMachineTypeFmt, i)
+		//regionKey := fmt.Sprintf(QuotaRegionFmt, i)
+		//amountKey := fmt.Sprintf(QuotaAmountFmt, i)
+		//lookupKey := QuotaLookup{
+		//	MachineType: nt.InstanceType,
+		//	Region:  nt.Region,
+		//}
+		quotas = append(quotas, Quota{
+			//MachineTypeKey: machineypeKey,
+			MachineType: nt.InstanceType,
+			//RegionKey:      regionKey,
+			Region: nt.Region,
+			//AmountKey:      amountKey,
+			Amount: 5,
+		})
+	}
+	d.simConfig.Quotas = quotas
+	data, err := json.MarshalIndent(d.simConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(SimulationConfigPath, data, 0755)
+	if err != nil {
+		return err
+	}
+	d.lastSimConfigChange = time.Now().UTC()
+	klog.Infof("createSimulationConfig wrote SimulationConfig at %q", SimulationConfigPath)
+	return nil
+}
+
+func hasSimulationConfigChanged(markTime time.Time) bool {
+	fileInfo, err := os.Stat(SimulationConfigPath)
+	if err != nil {
+		klog.Errorf("cannot fetch file info for %q: %v", SimulationConfigPath, err)
+		return false
+	}
+	lastModifiedTime := fileInfo.ModTime().UTC()
+	return lastModifiedTime.After(markTime)
+}
+
+func (d *DriverImpl) watchSimulationConfig() {
+	for {
+		select {
+		case <-time.After(time.Second * 10):
+			if hasSimulationConfigChanged(d.lastSimConfigChange) {
+				err := d.refreshSimulationConfig()
+				if err != nil {
+					klog.Errorf("watchSimulationConfig cannot refreshSimulationConfig: %w", err)
+				}
+			}
+		}
+	}
+}
+
+func (d *DriverImpl) refreshSimulationConfig() error {
+	data, err := os.ReadFile(SimulationConfigPath)
+	if err != nil {
+		return err
+	}
+	var sm SimulationConfig
+	err = json.Unmarshal(data, &sm)
+	if err != nil {
+		return err
+	}
+	d.simConfig = sm
+	d.lastSimConfigChange = time.Now().UTC()
+	klog.Infof("refreshSimulationConfig reloaded %q at %q", SimulationConfigPath, d.lastSimConfigChange)
+	return nil
+}
+
+func (d *DriverImpl) countNodesForRegionAndMachineType(region, machineType string) (count int) {
+	for _, n := range d.managedNodes {
+		if n.Labels[corev1.LabelTopologyRegion] == region && n.Labels[corev1.LabelInstanceTypeStable] == machineType {
+			count++
+		}
+	}
+	return
 }
 
 func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachineRequest) (resp *driver.CreateMachineResponse, err error) {
 	// Check if the MachineClass is for the supported cloud provider
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if req.MachineClass.Provider != ProviderAWS {
 		err = fmt.Errorf("requested for Provider '%s', virtual provider currently only supports '%s'", req.MachineClass.Provider, ProviderAWS)
 		err = status.Error(codes.InvalidArgument, err.Error())
 		return
+	}
+	var refQuota *Quota
+	for _, q := range d.simConfig.Quotas {
+		if req.MachineClass.NodeTemplate.Region == q.Region && req.MachineClass.NodeTemplate.InstanceType == q.MachineType {
+			refQuota = &q
+		}
+	}
+	if refQuota != nil {
+		num := d.countNodesForRegionAndMachineType(refQuota.Region, refQuota.MachineType)
+		if num >= refQuota.Amount {
+			msg := fmt.Sprintf("Quota %s exhausted", refQuota)
+			klog.Error(msg)
+			err = status.Error(codes.ResourceExhausted, msg)
+			return
+		}
 	}
 	node, err := newNode(req.Machine, req.MachineClass)
 	if err != nil {
@@ -81,11 +263,11 @@ func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachin
 		return
 	}
 	resp = &driver.CreateMachineResponse{
-		ProviderID:     node.Spec.ProviderID,
-		NodeName:       node.Name,
-		LastKnownState: fmt.Sprintf("Instance %q created at %q", node.Name, time.Now()),
+		ProviderID:     adjustedNode.Spec.ProviderID,
+		NodeName:       adjustedNode.Name,
+		LastKnownState: fmt.Sprintf("Instance %q created at %q", adjustedNode.Name, time.Now()),
 	}
-	d.managedNodes[node.Name] = adjustedNode
+	err = d.reloadNodes(ctx)
 	return
 }
 
@@ -155,8 +337,11 @@ func newNode(machine *v1alpha1.Machine, machineClass *v1alpha1.MachineClass) (no
 	node.Labels[corev1.LabelHostname] = nodeName
 	node.Labels[corev1.LabelOSStable] = "linux"
 	node.Labels[corev1.LabelInstanceType] = machineClass.NodeTemplate.InstanceType
+	node.Labels[corev1.LabelInstanceTypeStable] = machineClass.NodeTemplate.InstanceType
 	node.Labels["node.gardener.cloud/machine-name"] = machine.Name
 	node.Labels["networking.gardener.cloud/node-local-dns-enabled"] = "true"
+	node.Labels[corev1.LabelTopologyRegion] = machineClass.NodeTemplate.Region
+	node.Labels[corev1.LabelInstanceType] = machineClass.NodeTemplate.InstanceType
 
 	for k, v := range machine.Spec.NodeTemplateSpec.Labels {
 		node.Labels[k] = v
@@ -249,4 +434,15 @@ func generateEC2InstanceID() (instanceID string, err error) {
 	// Concatenate the prefix and the hex string
 	instanceID = instanceIDPrefix + randomHex
 	return
+}
+
+func FileExists(filepath string) bool {
+	fileinfo, err := os.Stat(filepath)
+	if err != nil {
+		return false
+	}
+	if fileinfo.IsDir() {
+		return false
+	}
+	return true
 }

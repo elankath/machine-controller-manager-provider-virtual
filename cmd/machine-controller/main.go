@@ -22,6 +22,7 @@ Modifications Copyright SAP SE or an SAP affiliate company and Gardener contribu
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/elankath/machine-controller-manager-provider-virtual/virtual"
 	"os"
@@ -51,7 +52,11 @@ func main() {
 		fmt.Errorf("--target-kubeconfig must be provided")
 		os.Exit(1)
 	}
-	driver, err := virtual.NewDriver(s.TargetKubeconfig)
+	if s.Namespace == "" {
+		fmt.Errorf("--namespace must be provided")
+		os.Exit(2)
+	}
+	driver, err := virtual.NewDriver(context.Background(), s.TargetKubeconfig, s.Namespace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)

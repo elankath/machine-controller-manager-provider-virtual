@@ -22,6 +22,7 @@ main() {
 
   export KUBECONFIG="$local_kubeconfig"
   init_local_cluster
+  source "$env_path"
   echo "Launching MC (machine-controller-manager-provider-virtual)..."
   "$mc_bin_path" --control-kubeconfig="$KUBECONFIG" \
     --target-kubeconfig="$KUBECONFIG" \

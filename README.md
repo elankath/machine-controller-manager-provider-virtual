@@ -4,7 +4,7 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 
 ## Purpose
 
-To enable dev-testing and debugging of the MCM and the CA on your local box with low resource usage and very simple setup. (no Docker, no Kind, no complexity)
+To enable dev-testing and debugging of the MCM and the CA on your local box with low resource usage and very simple setup. No Docker Desktop, no Kind, no complexity - just plain OS processes who write their logs to the `/tmp` directory.
 
 ## Usage
 

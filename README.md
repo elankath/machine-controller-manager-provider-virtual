@@ -58,8 +58,9 @@ Usage of setup:
 ##### Dev Start Help
 
 ```shell
-➤ ./bin/dev start -h                                                                                                                 git:main*
 Usage of start:
+  -all
+    	Starts ALL services
   -ca
     	Start CA (gardener cluster-autoscaler)
   -mc
@@ -67,11 +68,11 @@ Usage of start:
   -mcm
     	Start MCM (gardener machine-controller-manager)
 
-NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)%
+NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)
 ```
 
 #### Launch Only KVCL
-1. Execute: `./bin/dev start` #KVCL is started by default.
+1. Execute: `./bin/dev start` 
 
 #### Launch KVCL and MCM
 1. Execute: `./bin/dev start -mcm` 
@@ -88,7 +89,7 @@ NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)%
 
 ##### Dev Status Help
 
-```
+```shell
 Usage of status:
   -all
     	check status of ALL services

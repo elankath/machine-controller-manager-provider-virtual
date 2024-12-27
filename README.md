@@ -13,38 +13,92 @@ To enable dev-testing and debugging of the MCM and the CA on your local box with
 > [!NOTE]
 > Make sure you are signed into the SAP network before executing setup!
 
-Execute `./hack/setup.sh -project <gardenerProjName> -shoot <gardenerShootName>`
+#### Build the dev tool
 
-1. Will build the `hack` binary into `bin` and then invoke `bin/hack setup opts`
-1. Will download/build the binaries for the virtual cluster, MCM, MC, CA, hack, etc
+1. Change to the project base director
+1. Execute: `go build -v -o bin/dev cmd/dev/main.go`
+
+#### Execute Dev Setup
+1. Execute: `./bin/dev setup -h` to view command help
+1. Execute: `./bin/dev -project <gardenerProjName> -shoot <gardenerShootName>`
+
+
+##### Dev Setup Help
+```shell
+➤ ./bin/dev setup -h                                                                                                                 git:main*
+Usage of setup:
+  -ca-dir string
+    	CA Project Dir - fallback to env CA_DIR (default "/Users/I034796/go/src/k8s.io/autoscaler/cluster-autoscaler")
+  -kvcl-dir string
+    	KVCL Project Dir - fallback to env KVCL_DIR (default "/Users/I034796/go/src/github.com/unmarshall/kvcl")
+  -landscape string
+    	SAP Gardener Landscape - fallback to env LANDSCAPE (default "sap-landscape-dev")
+  -mcm-dir string
+    	MCM Project Dir - fallback to env MCM_DIR (default "/Users/I034796/go/src/github.com/gardener/machine-controller-manager")
+  -project string
+    	Gardener Project - fallback to env PROJECT
+  -shoot string
+    	Gardener Shoot Name - fallback to env SHOOT
+  -skip-build
+    	Skips building binaries if already present
+```
+
+
+#### What does 'dev setup' do ?
+1. Will download/build the binaries for the virtual cluster, MCM, MC, CA  etc
 1. It also downloads `MachineClass`, `MachineDeployment`, `Secrets` of the machine class and other resources from a real world Gardener cluster specified by the `-lanscape`, `-project` and `-shoot` options.
 1. The idea is to set up things in such a way that the MCM, MC and CA components can use the configuration of a remote gardener cluster replicated on a local virtual cluster.
+1. NOTE: GENERATES `StartConfig` inside `gen/start-config.json`. 
+   1. KINDLY EDIT this file to customize local startup options of gardener MCM (machine-controller-manager), MC (virtual machine-controller) and CA (cluster-autoscaler)
 
-### Launch
+### Dev Start
 
-> [!NOTE]
-> Currently local service launching is handled by scripts. This will be moved to the `hack launch` command later.
+1. Execute: `./bin/dev start -h` to view command help
+ 
+##### Dev Start Help
 
-#### Launch ALL Services - API-SERVER CA, MCM, MC
+```shell
+➤ ./bin/dev start -h                                                                                                                 git:main*
+Usage of start:
+  -ca
+    	Start CA (gardener cluster-autoscaler)
+  -mc
+    	Start MC (virtual machine-controller)
+  -mcm
+    	Start MCM (gardener machine-controller-manager)
 
-1. Execute the `./hack/all-start.sh`
-   1. This will will start `KVCL` (virtual cluster) followed by `MCM`, `MC` and `CA`
+NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)%
+```
 
-#### Launching Individual Services
+#### Launch Only KVCL
+1. Execute: `./bin/dev start` #KVCL is started by default.
 
-1. Individual Launch scripts are present in `./hack`
-   1. You can first launch KVCL (api server + scheduler) using `./hack/start-kvcl.sh`
-   1. Then you can launch MCM using `./hack/start-mcm.sh`
-   1. Then you can launch MC using `./hack/start-mc.sh`
-   1. Then you can launch CA using `./hack/start-ca.sh`
-1. TODO: The above will be changed to use the Go hack binary which will allow to _generate_ the launch scripts and permit customization of start stop with a ctl command later
+#### Launch KVCL and MCM
+1. Execute: `./bin/dev start -mcm` 
+
+#### Launch KVCL, MCM and MC
+1. Execute: `./bin/dev start -mcm -mc`
+
+#### Launch KVCL, MCM,  MC and CA 
+1. Execute: `./bin/dev start -mcm -mc -ca`
+
+
+### Dev Status
+1. Execute: `./bin/dev status -h` to view command help
+
+##### Dev Start Help
+
+```
+
+
+```
 
 ### Examples
 
-#### Checking out resources
+#### Checking out cluster resources
 
-1. `export KUBECONFIG=/tmp/kvcl.yaml`
-2. Listing control plane objects
+1. source `gen/env` # Sources generated env variables such as `KUBECONFIG` and `SHOOT_NAMESPACE`
+1. Listing control plane objects
    1. `kubectl config set-context --current --namespace=<SHOOT_NAMESPACE>`
    2. `kubectl get mcc,mcd,mc`
 

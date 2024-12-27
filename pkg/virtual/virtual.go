@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"github.com/elankath/machine-controller-manager-provider-virtual/virtual/awsfake"
+	"github.com/elankath/machine-controller-manager-provider-virtual/pkg/virtual/awsfake"
 	"github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	machineclientset "github.com/gardener/machine-controller-manager/pkg/client/clientset/versioned"
 	machineclientbuilder "github.com/gardener/machine-controller-manager/pkg/util/clientbuilder/machine"

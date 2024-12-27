@@ -24,7 +24,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/elankath/machine-controller-manager-provider-virtual/virtual"
+	"github.com/elankath/machine-controller-manager-provider-virtual/pkg/virtual"
 	"os"
 
 	//"github.com/gardener/machine-controller-manager-provider-aws/pkg/aws"

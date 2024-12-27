@@ -86,11 +86,20 @@ NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)%
 ### Dev Status
 1. Execute: `./bin/dev status -h` to view command help
 
-##### Dev Start Help
+##### Dev Status Help
 
 ```
+Usage of status:
+  -all
+    	check status of ALL services
+  -ca
+    	check status CA (gardener cluster-autoscaler)
+  -mc
+    	check status MC (virtual machine-controller)
+  -mcm
+    	check status MCM (gardener machine-controller-manager)
 
-
+NOTE: "status" with no  option specified checks status of only kvcl (virtual-cluster)
 ```
 
 ### Examples

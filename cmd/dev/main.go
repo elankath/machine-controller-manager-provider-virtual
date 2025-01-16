@@ -868,6 +868,7 @@ func InstallControlPlane(ctx context.Context) (exitCode int, err error) {
 }
 
 func startKVCL(ctx context.Context, cancel context.CancelFunc) (err error) {
+	klog.Infof("startKVCL invoked")
 	pids, err := du.FindPidsByName(ctx, KVCLName)
 	if err != nil {
 		return
@@ -877,14 +878,14 @@ func startKVCL(ctx context.Context, cancel context.CancelFunc) (err error) {
 		return
 	}
 	cmd := exec.CommandContext(ctx, Bins.KVCL)
-	cmd.Env = append(os.Environ(), "BINARY_ASSETS_DIR="+Dirs.Bin)
+	cmd.Env = append(os.Environ(), "BINARY_ASSETS_DIR="+Dirs.Bin, "KUBECONFIG="+Configs.LocalKubeConfig)
 	err = du.LaunchBackgroundCommand(cmd, Logs.KVCL, Pids.KVCL)
 	if err != nil {
 		return
 	}
-	kvclWaitSecs := 5
+	kvclWaitSecs := 7
 	klog.Infof("Waiting for %d secs after launching KVCL..", kvclWaitSecs)
-	<-time.After(time.Second * 5)
+	<-time.After(time.Second * time.Duration(kvclWaitSecs))
 	return
 }
 
@@ -908,7 +909,7 @@ func stopKVCL(ctx context.Context) (err error) {
 func initVirtualCluster(ctx context.Context, client *kubernetes.Clientset, shootNamespace string) (err error) {
 	var cmd *exec.Cmd
 	klog.Infof("initVirtualCluster is applying CRDs from %q", Dirs.CRD)
-	cmd = exec.CommandContext(ctx, "kubectl", "apply", "-f", Dirs.CRD)
+	cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "apply", "-f", Dirs.CRD)
 	out, err := du.InvokeCommand(cmd)
 	if err != nil {
 		return
@@ -918,20 +919,20 @@ func initVirtualCluster(ctx context.Context, client *kubernetes.Clientset, shoot
 	if err != nil {
 		return
 	}
-	cmd = exec.CommandContext(ctx, "kubectl", "get", "-n", shootNamespace, "mcc")
+	cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "get", "-n", shootNamespace, "mcc")
 	out, err = du.InvokeCommand(cmd)
 	if strings.TrimSpace(out) == "" {
-		cmd = exec.CommandContext(ctx, "kubectl", "apply", "-f", Specs.MachineClasses)
+		cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "apply", "-f", Specs.MachineClasses)
 		out, err = du.InvokeCommand(cmd)
 		if err != nil {
 			return
 		}
 	}
 
-	cmd = exec.CommandContext(ctx, "kubectl", "get", "-n", shootNamespace, "mcd")
+	cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "get", "-n", shootNamespace, "mcd")
 	out, err = du.InvokeCommand(cmd)
 	if strings.TrimSpace(out) == "" {
-		cmd = exec.CommandContext(ctx, "kubectl", "apply", "-f", Specs.MachineDeployments)
+		cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "apply", "-f", Specs.MachineDeployments)
 		out, err = du.InvokeCommand(cmd)
 		if err != nil {
 			return

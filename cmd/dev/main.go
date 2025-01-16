@@ -938,6 +938,16 @@ func initVirtualCluster(ctx context.Context, client *kubernetes.Clientset, shoot
 			return
 		}
 	}
+	klog.Infof("initVirtualCluster is applying secrets...")
+	cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "get", "-n", shootNamespace, "secret")
+	out, err = du.InvokeCommand(cmd)
+	if strings.TrimSpace(out) == "" {
+		cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", Configs.LocalKubeConfig, "apply", "-f", Dirs.Secret)
+		out, err = du.InvokeCommand(cmd)
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 

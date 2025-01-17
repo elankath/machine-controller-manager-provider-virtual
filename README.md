@@ -15,7 +15,7 @@ To enable dev-testing and debugging of the MCM and the CA on your local box with
 
 #### Build the dev tool
 
-1. Change to the project base director
+1. Change to the project base directory
 1. Execute: `go build -v -o bin/dev cmd/dev/main.go`
 
 #### Execute Dev Setup

@@ -26,7 +26,7 @@ To enable dev-testing and debugging of the MCM and the CA on your local box with
 
 #### Execute Dev Setup
 1. Execute: `./bin/dev setup -h` to view command help
-1. Execute: `./bin/dev -project <gardenerProjName> -shoot <gardenerShootName>`
+1. Execute: `./bin/dev setup -project <gardenerProjName> -shoot <gardenerShootName>`
 
 
 ##### Dev Setup Help

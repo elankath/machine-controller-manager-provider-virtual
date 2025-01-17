@@ -8,6 +8,12 @@ To enable dev-testing and debugging of the MCM and the CA on your local box with
 
 ## Usage
 
+### Checkout Pre-requisite projects
+
+1. KVCL (kubernetes virtual cluster). Checkout https://github.com/unmarshall/kvcl/ into your GOPATH. Ex: into `$GOPATH/src/github.com/unmarshall/kvcl`
+1. Autoscaler (gardener autoscaler). Checkout https://github.com/gardener/autoscaler/ into `$GOPATH/src/k8s.io/autoscaler`.
+1. MCM (machine-controller-manager). Checkout https://github.com/gardener/machine-controller-manager/ into `$GOPATH/src/github.com/elankath/machine-controller-manager`
+
 ### Setup
 
 > [!NOTE]

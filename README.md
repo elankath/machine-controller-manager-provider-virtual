@@ -77,6 +77,10 @@ Usage of start:
 NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)
 ```
 
+#### Launch All Services
+
+1. Execute: `./bin/dev start -all` #launches KVCL, MCM, MC and CA
+
 #### Launch Only KVCL
 1. Execute: `./bin/dev start` 
 

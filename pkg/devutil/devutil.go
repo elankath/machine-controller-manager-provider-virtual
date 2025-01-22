@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -448,6 +449,34 @@ func NewGardenCtl(coord ClusterCoordinate) *GardenCtl {
 	return gctl
 }
 
+var kubeConfigRe = regexp.MustCompile(`export KUBECONFIG='([^']+)'`)
+
+func (g *GardenCtl) GetKubeConfigPath(ctx context.Context, plane GardenerPlane) (kubeConfigPath string, err error) {
+	suffix := ""
+	if plane == ControlPlane {
+		suffix = "--control-plane"
+	}
+	cmdStr := fmt.Sprintf("eval $(gardenctl kubectl-env zsh) && gardenctl target --garden %s --project %s --shoot %s %s > /dev/null && gardenctl kubectl-env zsh",
+		g.Coordinate.Landscape, g.Coordinate.Project, g.Coordinate.Shoot, suffix)
+	cmd := exec.CommandContext(ctx, "zsh", "-c", cmdStr)
+	cmd.Env = append(os.Environ(), "GCTL_SESSION_ID=dev")
+	capturedOut, err := InvokeCommand(cmd)
+	if err != nil {
+		return
+	}
+	matches := kubeConfigRe.FindStringSubmatch(capturedOut)
+	if len(matches) > 1 {
+		kubeConfigPath = matches[1]
+		return
+	}
+	err = fmt.Errorf("cannot get kubeconfig path from output: %s", capturedOut)
+	return
+}
+
+func (g *GardenCtl) GetShootNamespace(ctx context.Context) (shootNamespace string, err error) {
+	return g.ExecuteCommandOnPlane(ctx, ControlPlane, "kubectl config view --minify -o jsonpath='{.contexts[0].context.namespace}'")
+}
+
 func (g *GardenCtl) ExecuteCommandOnPlane(ctx context.Context, plane GardenerPlane, kubectlCommand string) (capturedOut string, err error) {
 	cmd := exec.CommandContext(ctx, "zsh", "-c", g.genCompositeCommand(plane, kubectlCommand))
 	cmd.Env = append(os.Environ(), "GCTL_SESSION_ID=dev")
@@ -498,7 +527,7 @@ func ReadPidPath(pidPath string) (found bool, pid int, err error) {
 	var data []byte
 	data, err = os.ReadFile(pidPath)
 	if err != nil {
-		err = fmt.Errorf("cannot read pidPath %q: %w", err)
+		err = fmt.Errorf("cannot read pidPath %q: %w", pidPath, err)
 		return
 	}
 	pid, err = strconv.Atoi(string(data))

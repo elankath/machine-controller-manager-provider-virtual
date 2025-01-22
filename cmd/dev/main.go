@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	du "github.com/elankath/machine-controller-manager-provider-virtual/pkg/devutil"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"os"
@@ -572,6 +577,14 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 		}
 	}
 	gctl := du.NewGardenCtl(coord)
+	controlKubeConfigPath, err := gctl.GetKubeConfigPath(ctx, du.ControlPlane)
+	if err != nil {
+		return
+	}
+	controlKubeClient, err := du.CreateKubeClient(ctx, controlKubeConfigPath)
+	if err != nil {
+		return
+	}
 
 	err = du.CreateIfNotExists(Dirs.Spec, 0755)
 	if err != nil {
@@ -644,46 +657,86 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 		klog.Infof("CA Priority Expandder YAML already present at %q - skipping download.", Specs.CAPriorityExpander)
 	}
 
-	listSecretsCmd := "kubectl get secrets -o custom-columns=NAME:.metadata.name | grep '^shoot--' | tail +1"
-	listSecretsOut, err := gctl.ExecuteCommandOnPlane(ctx, du.ControlPlane, listSecretsCmd)
+	shootNamespace, err := gctl.GetShootNamespace(ctx)
 	if err != nil {
 		return
 	}
-	secretNames := strings.Split(listSecretsOut, "\n")
-	secretNames = append(secretNames, "cloudprovider")
-
-	var sb strings.Builder
-	for _, name := range secretNames {
-		if strings.TrimSpace(name) == "" {
-			continue
-		}
-		secretSpecPath := path.Join(Dirs.Secret, name+".yaml")
-		if du.FileExists(secretSpecPath) {
-			klog.Infof("Secret already downloaded at %q - skipping download", secretSpecPath)
-			continue
-		}
-		sb.WriteString("kubectl get secret ")
-		sb.WriteString(name)
-		sb.WriteString(" -oyaml > ")
-		sb.WriteString(secretSpecPath)
-		sb.WriteString(" ; ")
+	klog.Infof("shootNamespace: %q", shootNamespace)
+	scrtList, err := controlKubeClient.CoreV1().Secrets(shootNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return
 	}
 	err = os.MkdirAll(Dirs.Secret, 0o755)
 	if err != nil {
 		return
 	}
-	if sb.Len() > 0 {
-		downloadSecretsCmd := sb.String()
-		_, err = gctl.ExecuteCommandOnPlane(ctx, du.ControlPlane, downloadSecretsCmd)
-		if err != nil {
-			return
-		}
-	}
-	shootNamespace, err := gctl.ExecuteCommandOnPlane(ctx, du.ControlPlane, "kubectl config view --minify -o jsonpath='{.contexts[0].context.namespace}'")
+	scheme := runtime.NewScheme()
+	err = corev1.AddToScheme(scheme)
 	if err != nil {
 		return
 	}
-	klog.Infof("shootNamespace: %q", shootNamespace)
+	serializer := json.NewSerializerWithOptions(json.DefaultMetaFactory, scheme, scheme, json.SerializerOptions{Yaml: true, Pretty: true, Strict: true})
+	var yamlData bytes.Buffer
+	var secretSpecPath string
+	var secretAPIVersion = corev1.SchemeGroupVersion.String()
+	for _, s := range scrtList.Items {
+		if strings.HasPrefix(s.Name, "shoot--") || strings.HasPrefix(s.Name, "cloudprovider") {
+			secretSpecPath = path.Join(Dirs.Secret, s.Name+".yaml")
+			if du.FileExists(secretSpecPath) {
+				klog.Infof("Secret already downloaded at %q - skipping download", secretSpecPath)
+				continue
+			}
+			s.APIVersion = secretAPIVersion
+			s.Kind = "Secret"
+			err = serializer.Encode(&s, &yamlData)
+			if err != nil {
+				err = fmt.Errorf("cannot marshall secret %q due to %w", s.Name, err)
+				return
+			}
+			err = os.WriteFile(secretSpecPath, (&yamlData).Bytes(), 0644)
+			if err != nil {
+				err = fmt.Errorf("cannot write secret %q to path %q due to %w", s.Name, secretSpecPath, err)
+				return
+			}
+			klog.Infof("Secret %q downloaded at %q", s.Name, secretSpecPath)
+			yamlData.Reset()
+		}
+	}
+	//listSecretsCmd := "kubectl get secrets -o custom-columns=NAME:.metadata.name | grep '^shoot--' | tail +1"
+	//listSecretsOut, err := gctl.ExecuteCommandOnPlane(ctx, du.ControlPlane, listSecretsCmd)
+	//if err != nil {
+	//	return
+	//}
+	//secretNames := strings.Split(listSecretsOut, "\n")
+	//secretNames = append(secretNames, "cloudprovider")
+	//
+	//var sb strings.Builder
+	//for _, name := range secretNames {
+	//	if strings.TrimSpace(name) == "" {
+	//		continue
+	//	}
+	//	secretSpecPath := path.Join(Dirs.Secret, name+".yaml")
+	//	if du.FileExists(secretSpecPath) {
+	//		klog.Infof("Secret already downloaded at %q - skipping download", secretSpecPath)
+	//		continue
+	//	}
+	//	sb.WriteString("kubectl get secret ")
+	//	sb.WriteString(name)
+	//	sb.WriteString(" -oyaml > ")
+	//	sb.WriteString(secretSpecPath)
+	//	sb.WriteString(" ; ")
+	//}
+	//err = os.MkdirAll(Dirs.Secret, 0o755)
+	//if err != nil {
+	//	return
+	//}
+	//if sb.Len() > 0 {
+	//	downloadSecretsCmd := sb.String()
+	//	_, err = gctl.ExecuteCommandOnPlane(ctx, du.ControlPlane, downloadSecretsCmd)
+	//	if err != nil {
+	//		return
+	//	}
+	//}
 	clusterInfo = du.ClusterInfo{
 		ClusterCoordinate: coord,
 		ShootNamespace:    shootNamespace,
@@ -692,6 +745,7 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 	if err != nil {
 		return
 	}
+	var sb strings.Builder
 	sb.Reset()
 	sb.WriteString("export LANDSCAPE=")
 	sb.WriteString(clusterInfo.Landscape)

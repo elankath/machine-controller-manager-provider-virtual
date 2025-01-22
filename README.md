@@ -25,6 +25,7 @@ To enable dev-testing and debugging of the MCM and the CA on your local box with
 1. Execute: `go build -v -o bin/dev cmd/dev/main.go`
 
 #### Execute Dev Setup
+1. (optional) Clear the `gen` directory if you want a fresh setup: `rm -rf gen/`
 1. Execute: `./bin/dev setup -h` to view command help
 1. Execute: `./bin/dev setup -project <gardenerProjName> -shoot <gardenerShootName>`
 

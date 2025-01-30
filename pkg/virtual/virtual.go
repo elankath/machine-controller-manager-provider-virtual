@@ -6,6 +6,12 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"os"
+	"slices"
+	"sync"
+	"time"
+
 	"github.com/elankath/machine-controller-manager-provider-virtual/pkg/virtual/awsfake"
 	"github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	machineclientset "github.com/gardener/machine-controller-manager/pkg/client/clientset/versioned"
@@ -20,11 +26,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-	"maps"
-	"os"
-	"slices"
-	"sync"
-	"time"
 )
 
 const (
@@ -57,7 +58,9 @@ type QuotaLookup struct {
 }
 
 type SimulationConfig struct {
-	Quotas []Quota
+	Quotas              []Quota
+	InstanceCreateDelay string
+	InstanceDeleteDelay string
 }
 
 type Quota struct {
@@ -154,6 +157,8 @@ func (d *DriverImpl) createSimulationConfig(ctx context.Context) error {
 		})
 	}
 	d.simConfig.Quotas = quotas
+	d.simConfig.InstanceCreateDelay = "0"
+	d.simConfig.InstanceDeleteDelay = "0"
 	data, err := json.MarshalIndent(d.simConfig, "", "  ")
 	if err != nil {
 		return err
@@ -220,6 +225,12 @@ func (d *DriverImpl) countNodesForRegionAndMachineType(region, machineType strin
 
 func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachineRequest) (resp *driver.CreateMachineResponse, err error) {
 	d.mu.Lock()
+	if delay, _ := time.ParseDuration(d.simConfig.InstanceCreateDelay); delay > 0 {
+		klog.Infof("Simulating a delay in creation of %s for %q", d.simConfig.InstanceCreateDelay, req.Machine.Name)
+		defer func() {
+			<-time.After(delay)
+		}()
+	}
 	defer d.mu.Unlock()
 	// Check if the MachineClass is for the supported cloud provider
 	if req.MachineClass.Provider != ProviderAWS {
@@ -360,6 +371,14 @@ func (d *DriverImpl) InitializeMachine(ctx context.Context, request *driver.Init
 
 func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMachineRequest) (response *driver.DeleteMachineResponse, err error) {
 	d.mu.Lock()
+	if delay, _ := time.ParseDuration(d.simConfig.InstanceDeleteDelay); delay > 0 {
+		klog.Infof("Simulating a delay in deletion of %s for %q", d.simConfig.InstanceDeleteDelay, request.Machine.Name)
+		defer func() {
+			<-time.After(delay)
+		}()
+	} else {
+		klog.Infof("Delay not simulated!")
+	}
 	defer d.mu.Unlock()
 	delete(d.managedNodes, request.Machine.Name)
 	return

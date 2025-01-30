@@ -376,8 +376,6 @@ func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMa
 		defer func() {
 			<-time.After(delay)
 		}()
-	} else {
-		klog.Infof("Delay not simulated!")
 	}
 	defer d.mu.Unlock()
 	delete(d.managedNodes, request.Machine.Name)

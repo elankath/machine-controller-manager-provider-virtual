@@ -4,20 +4,24 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 
 ## Purpose
 
-To enable dev-testing and debugging of the MCM and the CA on your local box with low resource usage and very simple setup. No Docker Desktop, no Kind, no complexity - just plain OS processes who write their logs to the `/tmp` directory.
+1. To enable dev-testing and debugging of the MCM and the CA on your local box with low resource usage and very simple setup. No Docker Desktop, no Kind, no complexity - just plain OS processes who write their logs to the `/tmp` directory.
+2. To enable integration tests to execute and validate PR submissions on the core `machine-controller-manager` repository.
+
 
 ## Usage
 
-### Checkout Pre-requisite projects
+
+###  Setup
+
+> [!NOTE]
+> Make sure you are signed into the SAP network before executing setup!
+
+
+#### Checkout Pre-requisite projects (for Local, Manual Execution)
 
 1. KVCL (kubernetes virtual cluster). Checkout https://github.com/unmarshall/kvcl/ into your GOPATH. Ex: into `$GOPATH/src/github.com/unmarshall/kvcl`
 1. Autoscaler (gardener autoscaler). Checkout https://github.com/gardener/autoscaler/ into `$GOPATH/src/k8s.io/autoscaler`.
 1. MCM (machine-controller-manager). Checkout https://github.com/gardener/machine-controller-manager/ into `$GOPATH/src/github.com/elankath/machine-controller-manager`
-
-### Setup
-
-> [!NOTE]
-> Make sure you are signed into the SAP network before executing setup!
 
 #### Build the dev tool
 

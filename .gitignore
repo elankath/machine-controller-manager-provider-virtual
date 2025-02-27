@@ -1,9 +1,10 @@
 /args
 /bin
 /.kube-secrets
+.ci/controllers-test/logs/*.log
+.ci/controllers-test/logs/*.log.*
 /tmp/*
 /dev
-/test
 /logs
 /hack/tools/bin
 gen

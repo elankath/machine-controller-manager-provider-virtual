@@ -25,7 +25,7 @@ start:
 
 .PHONY: test
 test:
-	@(source gen/env; ./bin/dev start -all; cd test/intergration/controller; ginkgo -v --show-node-events --poll-progress-after=300s --poll-progress-interval=60s)
+	@(source gen/env; ./bin/dev start -all; cd test/integration/controller; ginkgo -v --show-node-events --poll-progress-after=300s --poll-progress-interval=60s)
 
 .PHONY: clean
 clean:

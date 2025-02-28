@@ -937,7 +937,7 @@ func startKVCL(ctx context.Context, cancel context.CancelFunc) (err error) {
 	if err != nil {
 		return
 	}
-	kvclWaitSecs := 7
+	kvclWaitSecs := 10
 	klog.Infof("Waiting for %d secs after launching KVCL..", kvclWaitSecs)
 	<-time.After(time.Second * time.Duration(kvclWaitSecs))
 	return

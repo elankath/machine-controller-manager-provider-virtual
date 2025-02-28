@@ -6,6 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
 	du "github.com/elankath/machine-controller-manager-provider-virtual/pkg/devutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,12 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	"os"
-	"os/exec"
-	"path"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 const (
@@ -762,6 +763,20 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 	sb.WriteString("export KUBECONFIG=")
 	sb.WriteString(Configs.LocalKubeConfig)
 	sb.WriteString("\n")
+	// Additional envvars required for integration tests
+	sb.WriteString("export CONTROL_NAMESPACE=")
+	sb.WriteString(shootNamespace)
+	sb.WriteString("\n")
+	sb.WriteString("export CONTROL_CLUSTER_NAMESPACE=")
+	sb.WriteString(shootNamespace)
+	sb.WriteString("\n")
+	sb.WriteString("export CONTROL_KUBECONFIG=")
+	sb.WriteString(Configs.LocalKubeConfig)
+	sb.WriteString("\n")
+	sb.WriteString("export IS_CONTROL_CLUSTER_SEED=true\n")
+	sb.WriteString("export LEADER_ELECT=false\n")
+	sb.WriteString("export IS_VIRTUAL_PROVIDER=true\n")
+
 	err = os.WriteFile(Configs.EnvScript, []byte(sb.String()), 0o755)
 	if err != nil {
 		return

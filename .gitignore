@@ -1,9 +1,10 @@
 /args
 /bin
 /.kube-secrets
+.ci/controllers-test/logs/*.log
+.ci/controllers-test/logs/*.log.*
 /tmp/*
 /dev
-/test
 /logs
 /hack/tools/bin
 gen
@@ -13,6 +14,7 @@ gen
 .run 
 **/.env
 *.DS_Store
+controller.test
 managevm
 controller_manager
 mcm.out

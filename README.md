@@ -26,7 +26,7 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 #### Build the dev tool
 
 1. Change to the project base directory
-1. Execute: `go build -v -o bin/dev cmd/dev/main.go`
+1. Execute: `mkdir bin; go build -v -o bin/dev cmd/dev/main.go`
 
 #### Execute Dev Setup
 1. (optional) Clear the `gen` directory if you want a fresh setup: `rm -rf gen/`

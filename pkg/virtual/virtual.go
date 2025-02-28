@@ -140,20 +140,13 @@ func (d *DriverImpl) createSimulationConfig(ctx context.Context) error {
 	var quotas []Quota
 	for i := 0; i < len(mccItems); i++ {
 		nt = mccItems[i].NodeTemplate
-		//machineypeKey := fmt.Sprintf(QuotaMachineTypeFmt, i)
-		//regionKey := fmt.Sprintf(QuotaRegionFmt, i)
-		//amountKey := fmt.Sprintf(QuotaAmountFmt, i)
-		//lookupKey := QuotaLookup{
-		//	MachineType: nt.InstanceType,
-		//	Region:  nt.Region,
-		//}
 		quotas = append(quotas, Quota{
 			//MachineTypeKey: machineypeKey,
 			MachineType: nt.InstanceType,
 			//RegionKey:      regionKey,
 			Region: nt.Region,
 			//AmountKey:      amountKey,
-			Amount: 5,
+			Amount: 10,
 		})
 	}
 	d.simConfig.Quotas = quotas

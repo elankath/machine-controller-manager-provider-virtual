@@ -210,10 +210,11 @@ func main() {
 
 type SetupOpts struct {
 	du.ClusterCoordinate
-	KVCLDir   string
-	MCMDir    string
-	CADir     string
-	SkipBuild bool
+	KVCLDir      string
+	MCMDir       string
+	CADir        string
+	SkipBuild    bool
+	SkipDownload bool
 	// Mode      string
 }
 
@@ -246,6 +247,7 @@ func Setup(ctx context.Context) (exitCode int, err error) {
 	setupCmd.StringVar(&so.MCMDir, "mcm-dir", defaultMCMDir, "MCM Project Dir - fallback to env MCM_DIR")
 	setupCmd.StringVar(&so.CADir, "ca-dir", defaultCADir, "CA Project Dir - fallback to env CA_DIR")
 	setupCmd.BoolVar(&so.SkipBuild, "skip-build", false, "Skips building binaries if already present")
+	setupCmd.BoolVar(&so.SkipDownload, "skip-download", false, "Skips downloading cluster data if already present")
 	// setupCmd.StringVar(&so.Mode, "mode", "local", "Development Mode")
 	err = setupCmd.Parse(os.Args[2:])
 	if err != nil {
@@ -290,17 +292,16 @@ func Setup(ctx context.Context) (exitCode int, err error) {
 		exitCode = ExitBuildMCMCABinaries
 		return
 	}
+	_, err = DownloadClusterData(ctx, so.ClusterCoordinate, so.SkipDownload)
+	if err != nil {
+		exitCode = ExitDownloadClusterData
+		return
+	}
 	err = CopyCRDs(so)
 	if err != nil {
 		exitCode = ExitCopyCRDs
 		return
 	}
-	_, err = DownloadClusterData(ctx, so.ClusterCoordinate)
-	if err != nil {
-		exitCode = ExitDownloadClusterData
-		return
-	}
-
 	err = GenerateStartConfig()
 	if err != nil {
 		exitCode = ExitGenerateStartConfig
@@ -561,8 +562,12 @@ func Status(ctx context.Context) (exitCode int, err error) {
 	return
 }
 
-func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clusterInfo du.ClusterInfo, err error) {
+func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate, skipDownload bool) (clusterInfo du.ClusterInfo, err error) {
 	clusterInfo, ok := ReadClusterInfo()
+	if skipDownload && clusterInfo.ClusterCoordinate == coord && du.Exists(Dirs.Gen) {
+		klog.Infof("Skipping download of the cluster data!")
+		return
+	}
 	if ok {
 		if clusterInfo.ClusterCoordinate != coord {
 			klog.Warningf("DownloadClusterData deleting all downloaded files detected change in cluster coordinate from %v->%v",
@@ -655,7 +660,7 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 			klog.Infof("NO CA Priority Expander (%q) configured for %s", "cluster-autoscaler-priority-expander", coord)
 		}
 	} else {
-		klog.Infof("CA Priority Expandder YAML already present at %q - skipping download.", Specs.CAPriorityExpander)
+		klog.Infof("CA Priority Expander YAML already present at %q - skipping download.", Specs.CAPriorityExpander)
 	}
 
 	shootNamespace, err := gctl.GetShootNamespace(ctx)

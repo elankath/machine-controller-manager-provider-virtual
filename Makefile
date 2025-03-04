@@ -4,7 +4,7 @@ build:
 
 .PHONY: setup
 setup:
-	@(printf "Project is: "; read PROJECT; printf "Shoot is: "; read SHOOT; ./bin/dev setup -project $$PROJECT -shoot $$SHOOT);
+	@(printf "Project is: "; read PROJECT; printf "Shoot is: "; read SHOOT; ./bin/dev setup -project $$PROJECT -shoot $$SHOOT -skip-download true);
 
 .PHONY: start
 start:

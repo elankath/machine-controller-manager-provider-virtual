@@ -52,6 +52,8 @@ Usage of setup:
     	Gardener Shoot Name - fallback to env SHOOT
   -skip-build
     	Skips building binaries if already present
+  -skip-download
+        Skips downloading cluster data if already present
 ```
 
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"os"
 	"os/exec"
 	"path"
@@ -31,9 +32,9 @@ const (
 	ExitBuildMCMCABinaries
 	ExitCopyCRDs
 	ExitDownloadClusterData
-	ExitGenerateStartConfig
+	ExitGenerateSetupConfig
 	ExitLoadClusterInfo
-	ExitLoadStartConfig
+	ExitLoadSetupConfig
 	ExitStartKVCL
 	ExitCreateKubeClient
 	ExitInitCluster
@@ -45,6 +46,7 @@ const (
 	ExitStopMC
 	ExitStopMCM
 	ExitStatusCheck
+	ExitUnsupported
 )
 
 var (
@@ -97,7 +99,7 @@ type ConfigPaths struct {
 	ClusterInfo     string
 	LocalKubeConfig string
 	EnvScript       string
-	StartConfig     string
+	SetupConfig     string
 }
 
 var Dirs ProjectDirs
@@ -159,7 +161,7 @@ func init() {
 		ClusterInfo:     path.Join(Dirs.Gen, "cluster-info.json"),
 		LocalKubeConfig: "/tmp/kvcl.yaml",
 		EnvScript:       path.Join(Dirs.Gen, "env"),
-		StartConfig:     path.Join(Dirs.Gen, "start-config.json"),
+		SetupConfig:     path.Join(Dirs.Gen, "setup-config.json"),
 	}
 }
 
@@ -169,7 +171,7 @@ func main() {
 	var cleanups []func()
 
 	if len(os.Args) < 2 {
-		_, _ = fmt.Fprintln(os.Stderr, "dev: Expected one of 'dev setup [opts]' or 'dev start [opts]'")
+		_, _ = fmt.Fprintln(os.Stderr, "dev: Expected one of 'dev setup|start|stop|status|run-configs sub-commands")
 		os.Exit(ExitBasicInvocation)
 	}
 	defer func() {
@@ -194,13 +196,15 @@ func main() {
 		exitCode, err = Stop(ctx)
 	case "status":
 		exitCode, err = Status(ctx)
+	case "run-configs":
+		exitCode, err = RunConfigs(ctx)
 	default:
 		_, _ = fmt.Fprintf(os.Stderr, "dev: error: Unknown subcommand %q\n", command)
 		os.Exit(ExitBasicInvocation)
 	}
 
 	if exitCode > 0 {
-		klog.Errorf("dev %s FAILED: %v", command, err)
+		klog.Errorf("dev %s error: %v", command, err)
 		os.Exit(exitCode)
 	}
 
@@ -301,15 +305,15 @@ func Setup(ctx context.Context) (exitCode int, err error) {
 		return
 	}
 
-	err = GenerateStartConfig()
+	err = GenerateSetupConfig(so)
 	if err != nil {
-		exitCode = ExitGenerateStartConfig
+		exitCode = ExitGenerateSetupConfig
 		return
 	}
 	return
 }
 
-type DevOpts struct {
+type StartStopOpts struct {
 	MCM bool
 	MC  bool
 	CA  bool
@@ -317,7 +321,7 @@ type DevOpts struct {
 }
 
 func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err error) {
-	var opts DevOpts
+	var opts StartStopOpts
 	startCmd := flag.NewFlagSet("start", flag.ExitOnError)
 	startCmd.BoolVar(&opts.MCM, "mcm", false, "Start MCM (gardener machine-controller-manager)")
 	startCmd.BoolVar(&opts.MC, "mc", false, "Start MC (virtual machine-controller)")
@@ -345,10 +349,10 @@ func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err er
 		return
 	}
 
-	startConfig, err := du.ReadJson[StartConfig](Configs.StartConfig)
+	setupConfig, err := du.ReadJson[SetupConfig](Configs.SetupConfig)
 	if err != nil {
-		exitCode = ExitLoadStartConfig
-		err = fmt.Errorf("error loading StartConfig %q: %w", Configs.StartConfig, err)
+		exitCode = ExitLoadSetupConfig
+		err = fmt.Errorf("error loading SetupConfig %q: %w", Configs.SetupConfig, err)
 		return
 	}
 
@@ -388,7 +392,7 @@ func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err er
 
 	var errs []error
 	if opts.MCM || opts.ALL {
-		err = startMCM(ctx, client, clusterInfo.ShootNamespace, startConfig)
+		err = startMCM(ctx, client, clusterInfo.ShootNamespace, setupConfig)
 		if err != nil {
 			exitCode = ExitStartMCM
 			err = fmt.Errorf("error starting MCM: %w", err)
@@ -397,7 +401,7 @@ func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err er
 	}
 
 	if opts.MC || opts.ALL {
-		err = startMC(ctx, startConfig)
+		err = startMC(ctx, setupConfig)
 		if err != nil {
 			exitCode = ExitStartMC
 			err = fmt.Errorf("error starting MC: %w", err)
@@ -406,7 +410,7 @@ func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err er
 	}
 
 	if opts.CA || opts.ALL {
-		err = startCA(ctx, client, clusterInfo.ShootNamespace, startConfig)
+		err = startCA(ctx, client, clusterInfo.ShootNamespace, setupConfig)
 		if err != nil {
 			exitCode = ExitStartCA
 			err = fmt.Errorf("error starting CA: %w", err)
@@ -418,7 +422,7 @@ func Start(ctx context.Context, cancel context.CancelFunc) (exitCode int, err er
 }
 
 func Stop(ctx context.Context) (exitCode int, err error) {
-	var opts DevOpts
+	var opts StartStopOpts
 	stopCmd := flag.NewFlagSet("stop", flag.ExitOnError)
 	standardUsage := stopCmd.Usage
 	stopCmd.Usage = func() {
@@ -484,7 +488,7 @@ func Stop(ctx context.Context) (exitCode int, err error) {
 }
 
 func Status(ctx context.Context) (exitCode int, err error) {
-	var opts DevOpts
+	var opts StartStopOpts
 	var errs []error
 
 	statusCmd := flag.NewFlagSet("status", flag.ExitOnError)
@@ -509,7 +513,7 @@ func Status(ctx context.Context) (exitCode int, err error) {
 
 	var pids []int
 	if opts.MCM || opts.ALL {
-		pids, err = du.FindPidsByName(ctx, MCMName)
+		pids, err = du.FindProcessIDsByName(ctx, MCMName)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -521,7 +525,7 @@ func Status(ctx context.Context) (exitCode int, err error) {
 	}
 
 	if opts.MC || opts.ALL {
-		pids, err = du.FindPidsByName(ctx, MCName)
+		pids, err = du.FindProcessIDsByName(ctx, MCName)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -533,7 +537,7 @@ func Status(ctx context.Context) (exitCode int, err error) {
 	}
 
 	if opts.CA || opts.ALL {
-		pids, err = du.FindPidsByName(ctx, CAName)
+		pids, err = du.FindProcessIDsByName(ctx, CAName)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -544,7 +548,7 @@ func Status(ctx context.Context) (exitCode int, err error) {
 		}
 	}
 
-	pids, err = du.FindPidsByName(ctx, KVCLName)
+	pids, err = du.FindProcessIDsByName(ctx, KVCLName)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -557,6 +561,91 @@ func Status(ctx context.Context) (exitCode int, err error) {
 	err = errors.Join(errs...)
 	if err != nil {
 		exitCode = ExitStatusCheck
+	}
+	return
+}
+
+type RunConfigOpts struct {
+	JetBrains bool
+	VSCode    bool
+}
+
+func RunConfigs(ctx context.Context) (exitCode int, err error) {
+	var opts RunConfigOpts
+	var errs []error
+
+	statusCmd := flag.NewFlagSet("run-configs", flag.ExitOnError)
+	standardUsage := statusCmd.Usage
+	statusCmd.Usage = func() {
+		w := flag.CommandLine.Output() // may be os.Stderr - but not necessarily
+		standardUsage()
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "NOTE: Must run dev setup before executing this.")
+		_, _ = fmt.Fprintf(w, "NOTE: %q with no option specified creates run/launch configurations for all supported IDEs/editors", os.Args[1])
+	}
+	statusCmd.BoolVar(&opts.JetBrains, "jetbrains", false, "creates run configurations for Jetbrains IDEs (Intellij/Goland)")
+	statusCmd.BoolVar(&opts.VSCode, "vscode", false, "creates launch configurations for VSCode Go Plugin")
+
+	err = statusCmd.Parse(os.Args[2:])
+	if err != nil {
+		exitCode = ExitBasicInvocation
+		err = fmt.Errorf("error parsing flags: %w", err)
+		return
+	}
+
+	setupConfig, err := du.ReadJson[SetupConfig](Configs.SetupConfig)
+	if err != nil {
+		exitCode = ExitLoadSetupConfig
+		err = fmt.Errorf("error loading SetupConfig %q: %w", Configs.SetupConfig, err)
+		return
+	}
+
+	allConfigs := !(opts.JetBrains || opts.VSCode)
+
+	if allConfigs || opts.JetBrains {
+		err = createJetbrainsRunConfigs(setupConfig)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if opts.VSCode {
+		err = errors.New("vscode launch configurations are currently un-supported - will be developed later")
+		exitCode = ExitUnsupported
+	}
+
+	return
+}
+
+func createJetbrainsRunConfigs(sc SetupConfig) error {
+	err := createJetBrainsMCMRunConfig(sc)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createJetBrainsMCMRunConfig(sc SetupConfig) (err error) {
+	tmpl, err := template.New("JetBrainsMCMTemplate").Parse(jetBrainsMcmRunConfigTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse JetBrainsMCMTemplate: %w", err)
+	}
+	runConfigsDir := path.Join(sc.MCMDir, ".idea/runConfigurations")
+	err = os.MkdirAll(runConfigsDir, 0777)
+	if err != nil {
+		return fmt.Errorf("failed to create runConfigurations directory %q: %w", runConfigsDir, err)
+	}
+	runFilePath := path.Join(runConfigsDir, "LocalMCM.xml")
+	runFile, err := os.OpenFile(runFilePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return fmt.Errorf("failed to open %q: %w", runFilePath, err)
+	}
+	defer func() {
+		err = errors.Join(err, runFile.Close())
+	}()
+	err = tmpl.Execute(runFile, sc)
+	if err != nil {
+		err = fmt.Errorf("failed to execute JetBrainsMCMTemplate: %w", err)
 	}
 	return
 }
@@ -784,13 +873,17 @@ func DownloadClusterData(ctx context.Context, coord du.ClusterCoordinate) (clust
 	return
 }
 
-type StartConfig struct {
+// SetupConfig represents the result of the setup operation. It is generally saved/loaded into/from the 'gen/setup-config.json' file.
+type SetupConfig struct {
+	MCMDir  string
+	CADir   string
 	MCMArgs []string
 	MCArgs  []string
 	CAArgs  []string
+	CAEnv   map[string]string
 }
 
-func GenerateStartConfig() (err error) {
+func GenerateSetupConfig(so SetupOpts) (err error) {
 	mcmDeployment, err := du.LoadDeployemntYAML(Specs.MCMDeploy)
 	if err != nil {
 		return err
@@ -798,7 +891,10 @@ func GenerateStartConfig() (err error) {
 	if len(mcmDeployment.Spec.Template.Spec.Containers) == 0 {
 		return fmt.Errorf("cannot find mcm container in mcmDeployment %v", mcmDeployment)
 	}
-	var cfg StartConfig
+	var cfg SetupConfig
+	cfg.MCMDir = so.MCMDir
+	//cfg.MCDir = so.MCDir
+	cfg.CADir = so.CADir
 
 	mcmContainer := mcmDeployment.Spec.Template.Spec.Containers[0]
 	cfg.MCMArgs = mcmContainer.Command[1:]
@@ -809,7 +905,7 @@ func GenerateStartConfig() (err error) {
 	cfg.MCArgs = mcContainer.Args
 	replaceKubeConfigOptions(cfg.MCArgs)
 	cfg.MCArgs = append(cfg.MCArgs, "--leader-elect=false")
-	err = du.WriteJson(Configs.StartConfig, cfg)
+	err = du.WriteJson(Configs.SetupConfig, cfg)
 	if err != nil {
 		return
 	}
@@ -825,12 +921,21 @@ func GenerateStartConfig() (err error) {
 	cfg.CAArgs = caContainer.Command[1:]
 	cfg.CAArgs = append(cfg.CAArgs, "--leader-elect=false")
 
-	err = du.WriteJson(Configs.StartConfig, cfg)
+	cfg.CAEnv = make(map[string]string)
+	cfg.CAEnv["CONTROL_KUBECONFIG"] = Configs.LocalKubeConfig
+	cfg.CAEnv["TARGET_KUBECONFIG"] = Configs.LocalKubeConfig
+	for _, ev := range caContainer.Env {
+		if ev.Name == "CONTROL_NAMESPACE" {
+			cfg.CAEnv["CONTROL_NAMESPACE"] = ev.Value
+			break
+		}
+	}
+
+	err = du.WriteJson(Configs.SetupConfig, cfg)
 	if err != nil {
 		return err
 	}
-	fmt.Println()
-	klog.Infof("NOTE: Generated StartConfig JSON at %q - KINDLY CUSTOMIZE FOR YOUR USE", Configs.StartConfig)
+	klog.Infof("NOTE: Generated SetupConfig JSON at %q - KINDLY CUSTOMIZE FOR YOUR USE", Configs.SetupConfig)
 	return
 }
 
@@ -938,7 +1043,7 @@ func InstallControlPlane(ctx context.Context) (exitCode int, err error) {
 
 func startKVCL(ctx context.Context, cancel context.CancelFunc) (err error) {
 	klog.Infof("startKVCL invoked")
-	pids, err := du.FindPidsByName(ctx, KVCLName)
+	pids, err := du.FindProcessIDsByName(ctx, KVCLName)
 	if err != nil {
 		return
 	}
@@ -952,7 +1057,13 @@ func startKVCL(ctx context.Context, cancel context.CancelFunc) (err error) {
 	if err != nil {
 		return
 	}
-	kvclWaitSecs := 10
+	var kvclWaitSecs int
+	_, isWsl := os.LookupEnv("WSL_DISTRO_NAME")
+	if isWsl {
+		kvclWaitSecs = 12
+	} else {
+		kvclWaitSecs = 8
+	}
 	klog.Infof("Waiting for %d secs after launching KVCL..", kvclWaitSecs)
 	<-time.After(time.Second * time.Duration(kvclWaitSecs))
 	return
@@ -1020,8 +1131,8 @@ func initVirtualCluster(ctx context.Context, client *kubernetes.Clientset, shoot
 	return
 }
 
-func startMCM(ctx context.Context, client *kubernetes.Clientset, shootNamespace string, cfg StartConfig) (err error) {
-	pids, err := du.FindPidsByName(ctx, MCMName)
+func startMCM(ctx context.Context, client *kubernetes.Clientset, shootNamespace string, cfg SetupConfig) (err error) {
+	pids, err := du.FindProcessIDsByName(ctx, MCMName)
 	if err != nil {
 		return
 	}
@@ -1054,8 +1165,8 @@ func stopMCM(ctx context.Context) (err error) {
 	return
 }
 
-func startMC(ctx context.Context, cfg StartConfig) (err error) {
-	pids, err := du.FindPidsByName(ctx, MCName)
+func startMC(ctx context.Context, cfg SetupConfig) (err error) {
+	pids, err := du.FindProcessIDsByName(ctx, MCName)
 	if err != nil {
 		return
 	}
@@ -1088,8 +1199,8 @@ func stopMC(ctx context.Context) (err error) {
 	return
 }
 
-func startCA(ctx context.Context, client kubernetes.Interface, shootNamespace string, cfg StartConfig) (err error) {
-	pids, err := du.FindPidsByName(ctx, CAName)
+func startCA(ctx context.Context, client kubernetes.Interface, shootNamespace string, cfg SetupConfig) (err error) {
+	pids, err := du.FindProcessIDsByName(ctx, CAName)
 	if err != nil {
 		return
 	}
@@ -1166,3 +1277,20 @@ func InvokeSetupEnvTest(ctx context.Context) (kubeBinAssetsPath string, err erro
 	}
 	return
 }
+
+var jetBrainsMcmRunConfigTemplate = `
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="LocalMCM" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="machine-controller-manager" />
+    <working_directory value="$PROJECT_DIR$" />
+	{{range .MCMArgs}}
+    <parameters value="{{.}}" />
+	{{end}}
+    <kind value="FILE" />
+    <package value="github.com/gardener/machine-controller-manager" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/machine-controller-manager/controller_manager.go" />
+    <method v="2" />
+  </configuration>
+</component>
+`

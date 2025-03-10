@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -304,11 +305,59 @@ func FindAndKillProcesses(ctx context.Context, names ...string) (allPids []int, 
 	return
 }
 
-func FindPidsByName(ctx context.Context, name string) (pids []int, err error) {
+func FindProcessIDsByName(ctx context.Context, name string) (pids []int, err error) {
+	os := runtime.GOOS
+	switch os {
+	case "linux":
+		pids, err = getProcessIDsByNameOnLinux(ctx, name)
+	case "darwin":
+		pids, err = getProcessIDsByNameOnMacOS(ctx, name)
+	default:
+		err = fmt.Errorf("only support linux/macos for FindProcessIDsByName")
+	}
+	return
+}
+
+func getProcessIDsByNameOnLinux(ctx context.Context, name string) (pids []int, err error) {
+	cmd := exec.CommandContext(ctx, "pidof", name)
+	cmdOutput, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			// Get the exit code
+			exitCode := exitErr.ExitCode()
+			if exitCode == 1 {
+				klog.V(4).Infof("pidof returned exit status 1: no process with name %q found", name)
+				err = nil
+				return
+			}
+		}
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(string(cmdOutput)), "\n")
+	pids = make([]int, 0, len(lines))
+	var pid int
+	for _, line := range lines {
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+		// Convert string to int
+		pid, err = strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			err = fmt.Errorf("invalid pid: %s", line)
+			return
+		}
+		pids = append(pids, pid)
+	}
+	return
+}
+
+func getProcessIDsByNameOnMacOS(ctx context.Context, name string) (pids []int, err error) {
 	cmd := exec.CommandContext(ctx, "ps", "-e", "-o", "pid,comm")
 	psOutput, err := cmd.Output()
 	if err != nil {
-		klog.Errorf("FindProcess could not run ps command: %v", err)
+		klog.Errorf("getProcessIDsByNameOnMacOS could not run ps command: %v", err)
 		return
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(psOutput))
@@ -334,10 +383,11 @@ func FindPidsByName(ctx context.Context, name string) (pids []int, err error) {
 		}
 	}
 	return
+
 }
 
 func FindAndKillProcess(ctx context.Context, name string) (pids []int, err error) {
-	pids, err = FindPidsByName(ctx, name)
+	pids, err = FindProcessIDsByName(ctx, name)
 	if len(pids) == 0 {
 		err = fmt.Errorf("failed to find pid(s) for process with name %q", name)
 		return

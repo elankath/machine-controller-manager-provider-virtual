@@ -59,7 +59,7 @@ Usage of setup:
 1. Will download/build the binaries for the virtual cluster, MCM, MC, CA  etc
 1. It also downloads `MachineClass`, `MachineDeployment`, `Secrets` of the machine class and other resources from a real world Gardener cluster specified by the `-lanscape`, `-project` and `-shoot` options.
 1. The idea is to set up things in such a way that the MCM, MC and CA components can use the configuration of a remote gardener cluster replicated on a local virtual cluster.
-1. NOTE: GENERATES `StartConfig` inside `gen/start-config.json`. 
+1. NOTE: GENERATES `SetupConfig` inside `gen/setup-config.json`. 
    1. KINDLY EDIT this file to customize local startup options of gardener MCM (machine-controller-manager), MC (virtual machine-controller) and CA (cluster-autoscaler)
 
 ### Dev Start

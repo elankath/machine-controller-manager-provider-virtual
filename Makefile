@@ -27,7 +27,14 @@ start:
 test:
 	@(source gen/env; ./bin/dev start -all; cd test/integration/controller; ginkgo -v --show-node-events --poll-progress-after=300s --poll-progress-interval=60s)
 
+.PHONY: stop
+stop:
+	./bin/dev stop -all || true
+
 .PHONY: clean
 clean:
-	./bin/dev stop -all || true
-	@rm -rf ./gen/ || true
+	@rm -rf ./bin/
+	@rm -rf ./gen/
+
+.PHONY: test-integration
+test-integration: build setup test stop

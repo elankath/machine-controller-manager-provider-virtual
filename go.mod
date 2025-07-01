@@ -3,7 +3,7 @@ module github.com/elankath/machine-controller-manager-provider-virtual
 go 1.23.3
 
 require (
-	github.com/gardener/machine-controller-manager v0.55.1
+	github.com/gardener/machine-controller-manager v0.58.0
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.33.1
 	github.com/spf13/pflag v1.0.5

@@ -7,15 +7,12 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 1. To enable dev-testing and debugging of the MCM and the CA on your local box with low resource usage and very simple setup. No Docker Desktop, no Kind, no complexity - just plain OS processes who write their logs to the `/tmp` directory.
 2. To enable integration tests to execute and validate PR submissions on the core `machine-controller-manager` repository.
 
-
 ## Usage
 
-
-###  Setup
+### Setup
 
 > [!NOTE]
 > Make sure you are signed into the SAP network before executing setup!
-
 
 #### Checkout Pre-requisite projects (for Local, Manual Execution)
 
@@ -29,23 +26,24 @@ A virtual provider for the Gardener Machine Controller Manager thar provides a [
 1. Execute: `mkdir bin; go build -v -o bin/dev cmd/dev/main.go`
 
 #### Execute Dev Setup
+
 1. (optional) Clear the `gen` directory if you want a fresh setup: `rm -rf gen/`
 1. Execute: `./bin/dev setup -h` to view command help
 1. Execute: `./bin/dev setup -project <gardenerProjName> -shoot <gardenerShootName>`
 
-
 ##### Dev Setup Help
+
 ```shell
 ➤ ./bin/dev setup -h                                                                                                                 git:main*
 Usage of setup:
   -ca-dir string
-    	CA Project Dir - fallback to env CA_DIR (default "/Users/I034796/go/src/k8s.io/autoscaler/cluster-autoscaler")
+    	CA Project Dir - fallback to env CA_DIR (default "$GOPATH/src/k8s.io/autoscaler/cluster-autoscaler")
   -kvcl-dir string
-    	KVCL Project Dir - fallback to env KVCL_DIR (default "/Users/I034796/go/src/github.com/unmarshall/kvcl")
+    	KVCL Project Dir - fallback to env KVCL_DIR (default "$GOPATH/src/github.com/unmarshall/kvcl")
   -landscape string
     	SAP Gardener Landscape - fallback to env LANDSCAPE (default "sap-landscape-dev")
   -mcm-dir string
-    	MCM Project Dir - fallback to env MCM_DIR (default "/Users/I034796/go/src/github.com/gardener/machine-controller-manager")
+    	MCM Project Dir - fallback to env MCM_DIR (default "$GOPATH/src/github.com/gardener/machine-controller-manager")
   -project string
     	Gardener Project - fallback to env PROJECT
   -shoot string
@@ -54,18 +52,18 @@ Usage of setup:
     	Skips building binaries if already present
 ```
 
-
 #### What does 'dev setup' do ?
-1. Will download/build the binaries for the virtual cluster, MCM, MC, CA  etc
+
+1. Will download/build the binaries for the virtual cluster, MCM, MC, CA etc
 1. It also downloads `MachineClass`, `MachineDeployment`, `Secrets` of the machine class and other resources from a real world Gardener cluster specified by the `-lanscape`, `-project` and `-shoot` options.
 1. The idea is to set up things in such a way that the MCM, MC and CA components can use the configuration of a remote gardener cluster replicated on a local virtual cluster.
-1. NOTE: GENERATES `SetupConfig` inside `gen/setup-config.json`. 
+1. NOTE: GENERATES `SetupConfig` inside `gen/setup-config.json`.
    1. KINDLY EDIT this file to customize local startup options of gardener MCM (machine-controller-manager), MC (virtual machine-controller) and CA (cluster-autoscaler)
 
 ### Dev Start
 
 1. Execute: `./bin/dev start -h` to view command help
- 
+
 ##### Dev Start Help
 
 ```shell
@@ -87,19 +85,23 @@ NOTE: "start" with no specified option starts ONLY KVCL (virtual-cluster)
 1. Execute: `./bin/dev start -all` #launches KVCL, MCM, MC and CA
 
 #### Launch Only KVCL
-1. Execute: `./bin/dev start` 
+
+1. Execute: `./bin/dev start`
 
 #### Launch KVCL and MCM
-1. Execute: `./bin/dev start -mcm` 
+
+1. Execute: `./bin/dev start -mcm`
 
 #### Launch KVCL, MCM and MC
+
 1. Execute: `./bin/dev start -mcm -mc`
 
-#### Launch KVCL, MCM,  MC and CA 
+#### Launch KVCL, MCM, MC and CA
+
 1. Execute: `./bin/dev start -mcm -mc -ca`
 
-
 ### Dev Status
+
 1. Execute: `./bin/dev status -h` to view command help
 
 ##### Dev Status Help

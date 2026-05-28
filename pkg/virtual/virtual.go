@@ -3,10 +3,12 @@ package virtual
 import (
 	"cmp"
 	"context"
-	"crypto/rand"
+	crand "crypto/rand" // ← preferred alias
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
+	rand "math/rand/v2"
 	"os"
 	"slices"
 	"sync"
@@ -58,9 +60,21 @@ type QuotaLookup struct {
 }
 
 type SimulationConfig struct {
-	Quotas              []Quota
-	InstanceCreateDelay string
-	InstanceDeleteDelay string
+	Quotas         []Quota
+	InstanceDelays InstanceDelays
+}
+
+// InstanceDelays represents the minimum and maximum delays in seconds taken to create, initialize or join instance to cluster.
+// The real value will be randomized between minimum and maximum
+type InstanceDelays struct {
+	CreateMin     int64
+	CreateMax     int64
+	InitializeMin int64
+	InitializeMax int64
+	JoinMin       int64
+	JoinMax       int64
+	DeleteMin     int64
+	DeleteMax     int64
 }
 
 type Quota struct {
@@ -150,8 +164,16 @@ func (d *DriverImpl) createSimulationConfig(ctx context.Context) error {
 		})
 	}
 	d.simConfig.Quotas = quotas
-	d.simConfig.InstanceCreateDelay = "0"
-	d.simConfig.InstanceDeleteDelay = "0"
+	d.simConfig.InstanceDelays = InstanceDelays{
+		CreateMin:     1,
+		CreateMax:     2,
+		InitializeMin: 1,
+		InitializeMax: 2,
+		JoinMin:       2,
+		JoinMax:       4,
+		DeleteMin:     1,
+		DeleteMax:     2,
+	}
 	data, err := json.MarshalIndent(d.simConfig, "", "  ")
 	if err != nil {
 		return err
@@ -217,13 +239,8 @@ func (d *DriverImpl) countNodesForRegionAndMachineType(region, machineType strin
 }
 
 func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachineRequest) (resp *driver.CreateMachineResponse, err error) {
+	klog.Infof("Driver.CreateMachine started.")
 	d.mu.Lock()
-	if delay, _ := time.ParseDuration(d.simConfig.InstanceCreateDelay); delay > 0 {
-		klog.Infof("Simulating a delay in creation of %s for %q", d.simConfig.InstanceCreateDelay, req.Machine.Name)
-		defer func() {
-			<-time.After(delay)
-		}()
-	}
 	defer d.mu.Unlock()
 	// Check if the MachineClass is for the supported cloud provider
 	if req.MachineClass.Provider != ProviderAWS {
@@ -257,27 +274,50 @@ func (d *DriverImpl) CreateMachine(ctx context.Context, req *driver.CreateMachin
 		return
 	}
 	node.Spec.ProviderID = awsfake.EncodeInstanceID(req.MachineClass.NodeTemplate.Region, instanceID)
+	node.Status.Conditions = BuildReadyConditions(corev1.ConditionFalse)
+	node.Status.Phase = corev1.NodePending
+	delay := randomDuration(d.simConfig.InstanceDelays.CreateMin, d.simConfig.InstanceDelays.CreateMax)
+	klog.Infof("Simulating a delay in creation of %s for %q", delay, req.Machine.Name)
+	<-time.After(delay)
 	_, err = d.client.CoreV1().Nodes().Create(ctx, &node, metav1.CreateOptions{})
 	if err != nil {
 		err = status.Error(codes.Internal, err.Error())
 		return
 	}
-	adjustedNode, err := adjustNode(d.client, node.Name)
-	if err != nil {
-		err = status.Error(codes.Internal, err.Error())
-		return
-	}
+	klog.Infof("Created NotReady node %q", node.Name)
 	resp = &driver.CreateMachineResponse{
-		ProviderID:     adjustedNode.Spec.ProviderID,
-		NodeName:       adjustedNode.Name,
-		LastKnownState: fmt.Sprintf("Instance %q created at %q", adjustedNode.Name, time.Now()),
+		ProviderID:     node.Spec.ProviderID,
+		NodeName:       node.Name,
+		LastKnownState: fmt.Sprintf("Instance %q created at %q", node.Name, time.Now()),
 	}
+
+	joinDelay := randomDuration(d.simConfig.InstanceDelays.JoinMin, d.simConfig.InstanceDelays.JoinMax)
+	go func() {
+		klog.Infof("Waiting for joinDelay %q before making node %q Ready", joinDelay, node.Name)
+		<-time.After(joinDelay)
+		_, err = makeNodeReady(d.client, node.Name)
+		if err != nil {
+			klog.Errorf("Failed to make node %q Ready: %v", node.Name, err)
+		}
+		err = d.reloadNodes(ctx)
+		if err != nil {
+			klog.Error("Failed to reload nodes", err)
+		}
+		d.changeAssignedPodsToRunning(ctx) //TODO: Introduce SimulationConfig.PodReadyMinDelay, PodReadyMaxDelay
+	}()
 	err = d.reloadNodes(ctx)
-	go d.changeAssignedPodsToRunning(ctx)
+	klog.Infof("Driver.CreateMachine ended.")
 	return
 }
 
-func adjustNode(client *kubernetes.Clientset, nodeName string) (adjustedNode corev1.Node, err error) {
+// randomDuration returns a random duration between min  and max (inclusive).
+func randomDuration(minSecs, maxSecs int64) time.Duration {
+	minNano := time.Second.Nanoseconds() * minSecs
+	maxNano := time.Second.Nanoseconds() * maxSecs
+	return time.Duration(rand.Int64N(maxNano) + minNano)
+}
+
+func makeNodeReady(client *kubernetes.Clientset, nodeName string) (adjustedNode corev1.Node, err error) {
 	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		err = fmt.Errorf("adjustNode cannot get node with name %q: %w", node.Name, err)
@@ -291,15 +331,17 @@ func adjustNode(client *kubernetes.Clientset, nodeName string) (adjustedNode cor
 	//})
 	nd, err := client.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
 	if err != nil {
-		err = fmt.Errorf("adjustNode cannot update node with name %q: %w", nd.Name, err)
+		err = fmt.Errorf("makeNodeReady cannot update node with name %q: %w", nd.Name, err)
 		return
 	}
 	nd.Status.Phase = corev1.NodeRunning
+	nd.Status.Conditions = BuildReadyConditions(corev1.ConditionTrue)
 	nd, err = client.CoreV1().Nodes().UpdateStatus(context.Background(), nd, metav1.UpdateOptions{})
 	if err != nil {
-		err = fmt.Errorf("adjustNode cannot update the status of node with name %q: %w", nd.Name, err)
+		err = fmt.Errorf("makeNodeReady cannot update the status of node with name %q: %w", nd.Name, err)
 	}
 	adjustedNode = *nd.DeepCopy()
+	klog.Infof("makeNodeReady made node %q Ready", nd.Name)
 	return
 }
 
@@ -352,8 +394,6 @@ func newNode(machine *v1alpha1.Machine, machineClass *v1alpha1.MachineClass) (no
 	for k, v := range machine.Spec.NodeTemplateSpec.Labels {
 		node.Labels[k] = v
 	}
-	node.Status.Conditions = BuildReadyConditions()
-
 	return
 
 }
@@ -364,12 +404,11 @@ func (d *DriverImpl) InitializeMachine(ctx context.Context, request *driver.Init
 
 func (d *DriverImpl) DeleteMachine(ctx context.Context, request *driver.DeleteMachineRequest) (response *driver.DeleteMachineResponse, err error) {
 	d.mu.Lock()
-	if delay, _ := time.ParseDuration(d.simConfig.InstanceDeleteDelay); delay > 0 {
-		klog.Infof("Simulating a delay in deletion of %s for %q", d.simConfig.InstanceDeleteDelay, request.Machine.Name)
-		defer func() {
-			<-time.After(delay)
-		}()
-	}
+	delay := randomDuration(d.simConfig.InstanceDelays.DeleteMin, d.simConfig.InstanceDelays.DeleteMax)
+	klog.Infof("Simulating a delay in deletion of %s for %q", delay, request.Machine.Name)
+	defer func() {
+		<-time.After(delay)
+	}()
 	defer d.mu.Unlock()
 	delete(d.managedNodes, request.Machine.Name)
 	return
@@ -430,50 +469,55 @@ func (d *DriverImpl) changeAssignedPodsToRunning(ctx context.Context) {
 	}
 }
 
-func BuildReadyConditions() []corev1.NodeCondition {
-	lastTransition := time.Now().Add(-time.Minute)
+func BuildReadyConditions(readyConditionStatus corev1.ConditionStatus) []corev1.NodeCondition {
+	heartBeatTime := metav1.NewTime(time.Now())
 	return []corev1.NodeCondition{
 		{
 			Type:               corev1.NodeReady,
-			Status:             corev1.ConditionTrue,
-			LastTransitionTime: metav1.Time{Time: lastTransition},
+			Status:             readyConditionStatus,
+			LastTransitionTime: heartBeatTime,
+			LastHeartbeatTime:  heartBeatTime,
 		},
 		{
 			Type:               corev1.NodeNetworkUnavailable,
 			Status:             corev1.ConditionFalse,
-			LastTransitionTime: metav1.Time{Time: lastTransition},
+			LastTransitionTime: heartBeatTime,
+			LastHeartbeatTime:  heartBeatTime,
 		},
 		{
 			Type:               corev1.NodeDiskPressure,
 			Status:             corev1.ConditionFalse,
-			LastTransitionTime: metav1.Time{Time: lastTransition},
+			LastTransitionTime: heartBeatTime,
+			LastHeartbeatTime:  heartBeatTime,
 		},
 		{
 			Type:               corev1.NodeMemoryPressure,
 			Status:             corev1.ConditionFalse,
-			LastTransitionTime: metav1.Time{Time: lastTransition},
+			LastTransitionTime: heartBeatTime,
+			LastHeartbeatTime:  heartBeatTime,
 		},
 	}
 }
 
-func generateEC2InstanceID() (instanceID string, err error) {
-	// EC2 instance IDs start with "i-" followed by a 17-character hexadecimal string
-	const instanceIDPrefix = "i-"
-	const idLength = 17 // Length of the hexadecimal string
+func generateEC2InstanceID() (string, error) {
+	const prefix = "i-"
+	const hexLength = 17
 
-	// Generate 17 random bytes
-	randomBytes := make([]byte, idLength/2+1) // Ensure enough bytes for hex conversion
-	_, err = rand.Read(randomBytes)
-	if err != nil {
-		return
+	// We need 9 bytes to get at least 17 hex characters
+	bytes := make([]byte, 9)
+
+	if _, err := crand.Read(bytes); err != nil {
+		return "", err
 	}
 
-	// Convert random bytes to a hex string and truncate to 17 characters
-	randomHex := fmt.Sprintf("%x", randomBytes)[:idLength]
+	hexStr := hex.EncodeToString(bytes)
 
-	// Concatenate the prefix and the hex string
-	instanceID = instanceIDPrefix + randomHex
-	return
+	// Truncate to exactly 17 characters
+	if len(hexStr) > hexLength {
+		hexStr = hexStr[:hexLength]
+	}
+
+	return prefix + hexStr, nil
 }
 
 func FileExists(filepath string) bool {
